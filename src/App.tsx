@@ -145,10 +145,9 @@ const f = t => FLAGS[t] || "🏳️";
 
 const GROUP_MATCHES = ALL_GROUP_MATCHES_RAW.map(m => {
   const { bst } = etToBst(m.kickoffET);
-  const [bh] = bst.split(":").map(Number);
-  const earlyHours = bh < 8;
-  const pickDate = earlyHours ? prevDateStr(m.etDate) : m.etDate;
-  return { ...m, pickDate, kickoffBST: bst, earlyHours };
+  const midnight = m.kickoffET === "00:00";
+  const pickDate = midnight ? prevDateStr(m.etDate) : m.etDate;
+  return { ...m, pickDate, kickoffBST: bst, earlyHours: midnight };
 });
 
 const matchesByPickDate = {};
