@@ -254,19 +254,18 @@ export default function App() {
 
   function toast_(type,msg) { clearTimeout(toastRef.current); setToast({type,msg}); toastRef.current=setTimeout(()=>setToast(null),4500); }
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
+  const loadAll = useCallback(async (isInitial=false) => {
+    if(isInitial) setLoading(true);
     try {
       const { data: pData } = await supabase.from("players").select("*").order("lives",{ascending:false});
       const { data: pickData } = await supabase.from("picks").select("*");
       const { data: resData } = await supabase.from("results").select("*");
       const { data: koData } = await supabase.from("ko_fixtures").select("*");
 
-      // picks stored per match: player.picks[matchId] = choice
       const picksByPlayer = {};
       (pickData||[]).forEach(pk => {
         if (!picksByPlayer[pk.player_id]) picksByPlayer[pk.player_id] = {};
-        const key = pk.match_id || pk.pick_date; // fallback for old rows
+        const key = pk.match_id || pk.pick_date;
         picksByPlayer[pk.player_id][key] = pk.choice;
       });
       const assembled = (pData||[]).map(p => ({ ...p, picks: picksByPlayer[p.id]||{} }));
@@ -280,20 +279,23 @@ export default function App() {
       (koData||[]).forEach(k => { koObj[k.slot_id] = { home: k.home, away: k.away }; });
       setKoFixtures(koObj);
 
-      const savedId = localStorage.getItem("lps_activeId");
-      if (savedId && assembled.find(p=>p.id==savedId)) {
-        setActiveId(Number(savedId));
-        setScreen("pick");
+      // Only navigate on initial load, never on background polls
+      if(isInitial) {
+        const savedId = localStorage.getItem("lps_activeId");
+        if (savedId && assembled.find(p=>p.id==savedId)) {
+          setActiveId(Number(savedId));
+          setScreen("pick");
+        }
       }
     } catch(e) {
-      toast_("error","Connection error — check Supabase credentials.");
+      if(isInitial) toast_("error","Connection error — check Supabase credentials.");
       console.error(e);
     }
-    setLoading(false);
+    if(isInitial) setLoading(false);
   }, []); // eslint-disable-line
 
-  useEffect(() => { loadAll(); }, [loadAll]);
-  useEffect(() => { const i=setInterval(()=>loadAll(),30000); return()=>clearInterval(i); }, [loadAll]);
+  useEffect(() => { loadAll(true); }, [loadAll]);
+  useEffect(() => { const i=setInterval(()=>loadAll(false),30000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
 
   // pickOutcome for grid — check if the player has a pick for this match on this date
@@ -773,9 +775,12 @@ export default function App() {
       <div><div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
         <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — FIFA World Cup 2026</p></div>
         {rules.map(([icon,title,desc])=>(
-          <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`}}>
-            <div style={{fontSize:22,flexShrink:0,marginTop:2}}>{icon}</div>
-            <div><div style={{fontWeight:700,fontSize:14,color:T.amber,marginBottom:4}}>{title}</div><div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div></div>
+          <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
+            <div style={{fontSize:22,flexShrink:0,width:32,textAlign:"center",paddingTop:2}}>{icon}</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:14,color:T.amber,marginBottom:4}}>{title}</div>
+              <div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div>
+            </div>
           </div>
         ))}
       </div></div>
