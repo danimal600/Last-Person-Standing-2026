@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 
-// ─── ET→BST (June/July 2026: BST = ET + 5h) ─────────────────────────────
 function etToBst(etStr) {
   const [h, m] = etStr.split(":").map(Number);
   let bh = h + 5, overnight = false;
@@ -12,7 +11,6 @@ function prevDateStr(dateStr) {
   const d = new Date(dateStr+"T12:00:00Z"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10);
 }
 
-// ─── FIXTURES ────────────────────────────────────────────────────────────
 const ALL_GROUP_MATCHES_RAW = [
   { id:1,  etDate:"2026-06-11", home:"Mexico",         away:"South Africa",   group:"A", kickoffET:"15:00" },
   { id:2,  etDate:"2026-06-11", home:"South Korea",    away:"Czechia",        group:"A", kickoffET:"22:00" },
@@ -145,7 +143,6 @@ const FLAGS = {
 };
 const f = t => FLAGS[t] || "🏳️";
 
-// Build indexes
 const GROUP_MATCHES = ALL_GROUP_MATCHES_RAW.map(m => {
   const { bst } = etToBst(m.kickoffET);
   const [bh] = bst.split(":").map(Number);
@@ -190,19 +187,28 @@ function isLocked(pickDate) {
   const dl=deadlineETByPickDate[pickDate]; if(!dl)return false;
   if(pickDate<todayET())return true; if(pickDate>todayET())return false; return nowET()>=dl;
 }
+
+// picks is now { "matchId": "choice" } — one pick per match, not per day
 function getPicksInPhase(player, pickDate) {
   const ph=phaseOf(pickDate); if(ph==="FREE")return[];
-  return allPickDates.filter(d=>phaseOf(d)===ph).map(d=>player.picks[d]).filter(p=>p&&p!=="Draw");
+  // collect all team picks (not Draw) across all matches in this phase
+  const allMatches = allPickDates
+    .filter(d=>phaseOf(d)===ph)
+    .flatMap(d=>[...(matchesByPickDate[d]||[]), ...KNOCKOUT_SLOTS.filter(s=>s.pickDate===d)]);
+  return allMatches
+    .map(m=>player.picks[String(m.id)])
+    .filter(p=>p&&p!=="Draw");
 }
+
 function fmtBST(bst) { if(!bst)return"—"; const[h,m]=bst.split(":").map(Number),ap=h>=12?"pm":"am",h12=h>12?h-12:h===0?12:h; return`${h12}:${m.toString().padStart(2,"0")}${ap}`; }
 function fmtDate(d) { return new Date(d+"T12:00:00Z").toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}); }
 function fmtDateShort(d) { return new Date(d+"T12:00:00Z").toLocaleDateString("en-GB",{day:"numeric",month:"short"}); }
 function slotLabel(slot) {
-  if(slot==="FINAL") return"Final"; if(slot==="3RD") return"3rd Place Play-off";
-  if(slot==="SF-1") return"Semi-Final 1"; if(slot==="SF-2") return"Semi-Final 2";
-  if(slot.startsWith("QF-")) return`Quarter-Final ${slot.slice(3)}`;
-  if(slot.startsWith("R16-")) return`Round of 16 (${slot.slice(4)})`;
-  if(slot.startsWith("R32-")) return`Round of 32 (${slot.slice(4)})`;
+  if(slot==="FINAL")return"Final"; if(slot==="3RD")return"3rd Place Play-off";
+  if(slot==="SF-1")return"Semi-Final 1"; if(slot==="SF-2")return"Semi-Final 2";
+  if(slot.startsWith("QF-"))return`Quarter-Final ${slot.slice(3)}`;
+  if(slot.startsWith("R16-"))return`Round of 16 (${slot.slice(4)})`;
+  if(slot.startsWith("R32-"))return`Round of 32 (${slot.slice(4)})`;
   return slot;
 }
 function avatarBg(name) {
@@ -211,7 +217,16 @@ function avatarBg(name) {
 }
 function initials(name) { return name.trim().split(/\s+/).map(w=>w[0]).join("").toUpperCase().slice(0,2); }
 
-// ─── DESIGN TOKENS ───────────────────────────────────────────────────────
+// Get the one pick for an entire pick-day (the match they chose + which choice)
+function getDayPick(player, pickDate) {
+  const matches = [...(matchesByPickDate[pickDate]||[]), ...KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate)];
+  for (const m of matches) {
+    const choice = player.picks[String(m.id)];
+    if (choice) return { matchId: String(m.id), choice };
+  }
+  return null;
+}
+
 const T = {
   cardBg:"rgba(255,255,255,0.05)", border:"rgba(255,255,255,0.10)",
   amber:"#f0b429", amberBg:"rgba(240,180,41,0.14)", amberBorder:"rgba(240,180,41,0.38)",
@@ -222,15 +237,14 @@ const T = {
   cellCorrect:"rgba(28,110,50,0.80)", cellWrong:"rgba(160,30,30,0.82)",
   cellPending:"rgba(160,120,10,0.55)", cellNoPick:"rgba(40,50,60,0.70)",
 };
-const ADMIN_PW = "worldcup2026"; // Change this before deploying!
+const ADMIN_PW = "worldcup2026";
 
-// ─── APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [players,    setPlayers]    = useState([]);
   const [screen,     setScreen]     = useState("profile");
   const [activeId,   setActiveId]   = useState(() => { try { return localStorage.getItem("lps_activeId")||null; } catch { return null; } });
-  const [koFixtures, setKoFixtures] = useState({});   // { slotId: {home, away} }
-  const [results,    setResults]    = useState({});   // { "date|team": outcome }
+  const [koFixtures, setKoFixtures] = useState({});
+  const [results,    setResults]    = useState({});
   const [loading,    setLoading]    = useState(true);
   const [toast,      setToast]      = useState(null);
   const toastRef = useRef(null);
@@ -240,174 +254,175 @@ export default function App() {
 
   function toast_(type,msg) { clearTimeout(toastRef.current); setToast({type,msg}); toastRef.current=setTimeout(()=>setToast(null),4500); }
 
-  // ── LOAD ALL DATA FROM SUPABASE ───────────────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      // Load players
-      const { data: pData } = await supabase.from("players").select("*").order("lives", { ascending: false });
-      // Load picks
+      const { data: pData } = await supabase.from("players").select("*").order("lives",{ascending:false});
       const { data: pickData } = await supabase.from("picks").select("*");
-      // Load results
       const { data: resData } = await supabase.from("results").select("*");
-      // Load ko fixtures
       const { data: koData } = await supabase.from("ko_fixtures").select("*");
 
-      // Assemble players with picks
+      // picks stored per match: player.picks[matchId] = choice
       const picksByPlayer = {};
       (pickData||[]).forEach(pk => {
         if (!picksByPlayer[pk.player_id]) picksByPlayer[pk.player_id] = {};
-        picksByPlayer[pk.player_id][pk.pick_date] = pk.choice;
+        const key = pk.match_id || pk.pick_date; // fallback for old rows
+        picksByPlayer[pk.player_id][key] = pk.choice;
       });
       const assembled = (pData||[]).map(p => ({ ...p, picks: picksByPlayer[p.id]||{} }));
       setPlayers(assembled);
 
-      // Results as flat object
       const resObj = {};
       (resData||[]).forEach(r => { resObj[`${r.pick_date}|${r.team}`] = r.outcome; });
       setResults(resObj);
 
-      // KO fixtures
       const koObj = {};
       (koData||[]).forEach(k => { koObj[k.slot_id] = { home: k.home, away: k.away }; });
       setKoFixtures(koObj);
 
-      // Auto-navigate if we have a remembered player
       const savedId = localStorage.getItem("lps_activeId");
       if (savedId && assembled.find(p=>p.id==savedId)) {
         setActiveId(Number(savedId));
         setScreen("pick");
       }
     } catch(e) {
-      toast_("error", "Connection error — check your Supabase credentials.");
+      toast_("error","Connection error — check Supabase credentials.");
       console.error(e);
     }
     setLoading(false);
   }, []); // eslint-disable-line
 
   useEffect(() => { loadAll(); }, [loadAll]);
-
-  // Poll for updates every 30s so all players see live changes
-  useEffect(() => {
-    const interval = setInterval(() => { loadAll(); }, 30000);
-    return () => clearInterval(interval);
-  }, [loadAll]);
-
-  // Persist active player id locally
+  useEffect(() => { const i=setInterval(()=>loadAll(),30000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
 
-  // ── DATA HELPERS ──────────────────────────────────────────────────────
-  function pickOutcome(player, pickDate) {
-    const pick=player.picks[pickDate], locked=isLocked(pickDate);
-    if(!pick) return locked?"locked_nopick":"future";
-    const r=results[`${pickDate}|${pick}`];
-    if(!r) return locked?"pending":"future";
-    return(r==="win"||r==="draw_correct")?"correct":(r==="lose"||r==="draw_wrong")?"wrong":"pending";
+  // pickOutcome for grid — check if the player has a pick for this match on this date
+  function pickOutcomeForMatch(player, matchId, pickDate) {
+    const choice = player.picks[String(matchId)];
+    const locked = isLocked(pickDate);
+    if (!choice) return locked ? "locked_nopick" : "future";
+    const r = results[`${pickDate}|${choice}`];
+    if (!r) return locked ? "pending" : "future";
+    return (r==="win"||r==="draw_correct") ? "correct" : (r==="lose"||r==="draw_wrong") ? "wrong" : "pending";
   }
+
+  // For the grid, we want to show a player's pick for an entire day
+  function pickOutcomeForDay(player, pickDate) {
+    const dayPick = getDayPick(player, pickDate);
+    if (!dayPick) return isLocked(pickDate) ? "locked_nopick" : "future";
+    return pickOutcomeForMatch(player, dayPick.matchId, pickDate);
+  }
+
   function getMatchesForPickDate(pickDate) {
-    const gm=matchesByPickDate[pickDate]||[];
-    const km=KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate&&koFixtures[s.id]).map(s=>({...s,...koFixtures[s.id],isKnockout:true}));
+    const gm = matchesByPickDate[pickDate]||[];
+    const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate&&koFixtures[s.id]).map(s=>({...s,...koFixtures[s.id],isKnockout:true}));
     return [...gm,...km];
   }
   const activeDates = allPickDates.filter(d => groupPickDates.includes(d) || KNOCKOUT_SLOTS.filter(s=>s.pickDate===d).some(s=>koFixtures[s.id]));
 
-  // ── MAKE PICK (writes to Supabase) ────────────────────────────────────
-  async function makePick(pid, pickDate, choice) {
+  // Make a pick for a specific match
+  async function makePick(pid, pickDate, matchId, choice) {
     if(isLocked(pickDate)){toast_("error","🔒 Deadline passed!"); return;}
     const player = players.find(p=>p.id===pid);
     if(!player) return;
+
+    // Check: player can only have ONE pick across the whole day
+    const existingDayPick = getDayPick(player, pickDate);
+    if (existingDayPick && existingDayPick.matchId !== String(matchId)) {
+      toast_("error","You already have a pick for today — clear it first to change.");
+      return;
+    }
+
+    // Check phase repeat restriction
     const used = getPicksInPhase(player, pickDate);
-    if(choice!=="Draw"&&used.includes(choice)&&player.picks[pickDate]!==choice){toast_("error",`${f(choice)} ${choice} already used this phase!`);return;}
+    if(choice!=="Draw" && used.includes(choice) && player.picks[String(matchId)]!==choice){
+      toast_("error",`${f(choice)} ${choice} already used this phase!`);
+      return;
+    }
 
     // Optimistic update
-    setPlayers(prev=>prev.map(p=>p.id!==pid?p:{...p,picks:{...p.picks,[pickDate]:choice}}));
-    toast_("success",`${f(choice)} ${choice==="Draw"?"Draw":choice} locked in for ${fmtDate(pickDate)}!`);
+    setPlayers(prev=>prev.map(p=>p.id!==pid?p:{...p,picks:{...p.picks,[String(matchId)]:choice}}));
+    toast_("success",`${f(choice)} ${choice==="Draw"?"Draw":choice} locked in!`);
 
-    // Upsert to Supabase
-    const { error } = await supabase.from("picks").upsert({ player_id: pid, pick_date: pickDate, choice }, { onConflict: "player_id,pick_date" });
+    const { error } = await supabase.from("picks").upsert(
+      { player_id: pid, pick_date: pickDate, match_id: String(matchId), choice },
+      { onConflict: "player_id,pick_date,match_id" }
+    );
     if(error){ toast_("error","Save failed — try again."); loadAll(); }
   }
 
-  async function clearPick(pid, pickDate) {
+  async function clearPick(pid, pickDate, matchId) {
     if(isLocked(pickDate)){toast_("error","🔒 Deadline passed!");return;}
-    setPlayers(prev=>prev.map(p=>{ if(p.id!==pid)return p; const np={...p.picks};delete np[pickDate]; return{...p,picks:np}; }));
+    setPlayers(prev=>prev.map(p=>{ if(p.id!==pid)return p; const np={...p.picks};delete np[String(matchId)]; return{...p,picks:np}; }));
     toast_("info","Pick cleared.");
-    await supabase.from("picks").delete().eq("player_id",pid).eq("pick_date",pickDate);
+    await supabase.from("picks").delete().eq("player_id",pid).eq("pick_date",pickDate).eq("match_id",String(matchId));
   }
 
-  // ── REGISTER ─────────────────────────────────────────────────────────
   async function registerPlayer(name, password) {
-    const { data, error } = await supabase.from("players").insert({ name: name.trim(), password, lives: 6, eliminated: false }).select().single();
-    if(error){ if(error.code==="23505") return "Name already taken."; return "Registration failed."; }
-    setPlayers(prev=>[...prev, {...data, picks:{}}]);
-    setActiveId(data.id);
-    setScreen("pick");
+    const { data, error } = await supabase.from("players").insert({ name:name.trim(), password, lives:6, eliminated:false }).select().single();
+    if(error){ if(error.code==="23505")return"Name already taken."; return"Registration failed."; }
+    setPlayers(prev=>[...prev,{...data,picks:{}}]);
+    setActiveId(data.id); setScreen("pick");
     toast_("success",`Welcome, ${name}! You have 6 ❤️`);
     return null;
   }
 
-  // ── LOGIN ─────────────────────────────────────────────────────────────
   function loginPlayer(player, password) {
-    if(password !== player.password) return "Wrong password.";
-    setActiveId(player.id);
-    setScreen("pick");
+    if(password!==player.password)return"Wrong password.";
+    setActiveId(player.id); setScreen("pick");
     return null;
   }
 
-  // ── ADMIN: LOG RESULT ─────────────────────────────────────────────────
   async function logResult(pickDate, winTeam, loseTeam, wasDraw) {
-    // Build result rows
-    const rows = wasDraw ? [
-      { pick_date:pickDate, team:"Draw",    outcome:"draw_correct" },
-      { pick_date:pickDate, team:winTeam,   outcome:"draw_wrong" },
-      { pick_date:pickDate, team:loseTeam,  outcome:"draw_wrong" },
-    ] : [
-      { pick_date:pickDate, team:winTeam,   outcome:"win" },
-      { pick_date:pickDate, team:loseTeam,  outcome:"lose" },
-      { pick_date:pickDate, team:"Draw",    outcome:"draw_wrong" },
-    ];
+    const rows = wasDraw
+      ? [{pick_date:pickDate,team:"Draw",outcome:"draw_correct"},{pick_date:pickDate,team:winTeam,outcome:"draw_wrong"},{pick_date:pickDate,team:loseTeam,outcome:"draw_wrong"}]
+      : [{pick_date:pickDate,team:winTeam,outcome:"win"},{pick_date:pickDate,team:loseTeam,outcome:"lose"},{pick_date:pickDate,team:"Draw",outcome:"draw_wrong"}];
+    await supabase.from("results").upsert(rows,{onConflict:"pick_date,team"});
 
-    await supabase.from("results").upsert(rows, { onConflict:"pick_date,team" });
-
-    // Midda's Law check
+    // Get all matches on this day to find who picked what
+    const dayMatches = getMatchesForPickDate(pickDate);
     const active = players.filter(p=>!p.eliminated&&p.lives>0);
-    if(!wasDraw){
-      const losers = active.filter(p=>p.picks[pickDate]===loseTeam||p.picks[pickDate]==="Draw");
-      if(losers.length===active.length&&active.length>0){ toast_("info","⚖️ Midda's Law — everyone wrong, no lives lost!"); loadAll(); return; }
+
+    // Who loses a life? Anyone whose pick on any match this day matches the loser
+    const losers = active.filter(p => {
+      const dp = getDayPick(p, pickDate);
+      if (!dp) return true; // no pick = Howard's law = lose a life
+      return wasDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw");
+    });
+
+    if(!wasDraw && losers.length===active.length && active.length>0){
+      toast_("info","⚖️ Midda's Law — everyone wrong, no lives lost!");
+      loadAll(); return;
     }
 
-    // Remove lives from losers
     const updates = [];
-    for(const p of active) {
-      const pick = p.picks[pickDate];
-      const lost = wasDraw ? (pick&&pick!=="Draw") : (pick===loseTeam||pick==="Draw"||!pick);
-      if(lost){
-        const nl = p.lives-1;
-        updates.push(supabase.from("players").update({ lives:nl, eliminated:nl===0 }).eq("id",p.id));
-      }
+    for(const p of active){
+      const dp = getDayPick(p, pickDate);
+      const lost = !dp || (wasDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw"));
+      if(lost){ const nl=p.lives-1; updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id)); }
     }
     await Promise.all(updates);
     toast_("success","Result logged. Lives updated.");
     loadAll();
   }
 
-  // ── ADMIN: HOWARD'S LAW ───────────────────────────────────────────────
   async function applyHowardsLaw(pickDate) {
     const teams = getMatchesForPickDate(pickDate).flatMap(m=>[m.home,m.away]).filter(Boolean);
-    const lowest = teams[teams.length-1]||""; if(!lowest) return;
-    const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!p.picks[pickDate]);
-    if(!unpicked.length){ toast_("info","All active players already have picks."); return; }
-    const inserts = unpicked.map(p=>({ player_id:p.id, pick_date:pickDate, choice:lowest }));
-    await supabase.from("picks").upsert(inserts, { onConflict:"player_id,pick_date" });
+    const lowest = teams[teams.length-1]||""; if(!lowest)return;
+    const dayMatches = getMatchesForPickDate(pickDate);
+    const firstMatch = dayMatches[0]; if(!firstMatch)return;
+    const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
+    if(!unpicked.length){toast_("info","All active players already have picks.");return;}
+    const inserts = unpicked.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(firstMatch.id),choice:lowest}));
+    await supabase.from("picks").upsert(inserts,{onConflict:"player_id,pick_date,match_id"});
     toast_("info",`Howard's Law — ${unpicked.length} player(s) assigned ${lowest}`);
     loadAll();
   }
 
-  // ── ADMIN: SET KO FIXTURE ─────────────────────────────────────────────
   async function setKoFixture(slotId, home, away) {
-    await supabase.from("ko_fixtures").upsert({ slot_id:slotId, home, away }, { onConflict:"slot_id" });
+    await supabase.from("ko_fixtures").upsert({slot_id:slotId,home,away},{onConflict:"slot_id"});
     setKoFixtures(prev=>({...prev,[slotId]:{home,away}}));
-    const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
+    const slot=KNOCKOUT_SLOTS.find(s=>s.id===slotId);
     toast_("success",`${slot?slotLabel(slot.slot):slotId}: ${home} vs ${away}`);
   }
   async function clearKoFixture(slotId) {
@@ -415,34 +430,27 @@ export default function App() {
     setKoFixtures(prev=>{const n={...prev};delete n[slotId];return n;});
     toast_("info","Fixture cleared.");
   }
-
-  // ── ADMIN: EDIT PLAYER PICK ───────────────────────────────────────────
-  async function adminSetPick(pid, pickDate, choice) {
+  async function adminSetPick(pid, pickDate, matchId, choice) {
     if(choice==="CLEAR"){
-      await supabase.from("picks").delete().eq("player_id",pid).eq("pick_date",pickDate);
+      await supabase.from("picks").delete().eq("player_id",pid).eq("pick_date",pickDate).eq("match_id",String(matchId));
     } else {
-      await supabase.from("picks").upsert({player_id:pid,pick_date:pickDate,choice},{onConflict:"player_id,pick_date"});
+      await supabase.from("picks").upsert({player_id:pid,pick_date:pickDate,match_id:String(matchId),choice},{onConflict:"player_id,pick_date,match_id"});
     }
-    toast_("success","Pick updated.");
-    loadAll();
+    toast_("success","Pick updated."); loadAll();
   }
-
-  // ── ADMIN: RESET PASSWORD ─────────────────────────────────────────────
-  async function adminResetPassword(pid, newPw) {
+  async function adminResetPassword(pid,newPw) {
     await supabase.from("players").update({password:newPw}).eq("id",pid);
     setPlayers(prev=>prev.map(p=>p.id!==pid?p:{...p,password:newPw}));
     toast_("success","Password updated.");
   }
-
-  // ── ADMIN: ADJUST LIVES ───────────────────────────────────────────────
-  async function adminAdjustLives(pid, delta) {
-    const p = players.find(q=>q.id===pid); if(!p) return;
-    const nl = Math.max(0, p.lives+delta);
-    await supabase.from("players").update({lives:nl, eliminated:nl===0}).eq("id",pid);
+  async function adminAdjustLives(pid,delta) {
+    const p=players.find(q=>q.id===pid); if(!p)return;
+    const nl=Math.max(0,p.lives+delta);
+    await supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",pid);
     setPlayers(prev=>prev.map(q=>q.id!==pid?q:{...q,lives:nl,eliminated:nl===0}));
   }
 
-  // ── SHARED STYLES ─────────────────────────────────────────────────────
+  // ── STYLES ───────────────────────────────────────────────────────────────
   const card   = {background:T.cardBg,border:`1px solid ${T.border}`,borderRadius:14,padding:20,marginBottom:14};
   const sec    = {fontSize:10,textTransform:"uppercase",letterSpacing:3,color:T.amber,marginBottom:16};
   const inp    = {background:"rgba(255,255,255,0.07)",border:`1px solid rgba(255,255,255,0.16)`,borderRadius:8,color:T.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"inherit",width:"100%"};
@@ -464,16 +472,14 @@ export default function App() {
     );
   }
 
-  // Loading spinner
   if(loading) return (
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1a10 0%,#0d2016 55%,#0a1a10 100%)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,color:T.amber,fontFamily:"'Segoe UI',sans-serif"}}>
       <div style={{fontSize:48}}>🏆</div>
       <div style={{fontSize:18,fontWeight:700}}>Last Person Standing</div>
-      <div style={{fontSize:13,color:T.muted}}>Connecting to database…</div>
+      <div style={{fontSize:13,color:T.muted}}>Connecting…</div>
     </div>
   );
 
-  // ── PROFILE SCREEN ────────────────────────────────────────────────────
   function ProfileScreen() {
     const [switchTo,setSwitchTo]=useState(null);
     const [pw,setPw]=useState(""); const [err,setErr]=useState("");
@@ -500,7 +506,7 @@ export default function App() {
                       <div style={{fontWeight:700,fontSize:15,color:p.eliminated?"#3a5a40":T.text}}>{p.name}</div>
                       <div style={{fontSize:12,color:T.muted,marginTop:2}}>{p.eliminated?"💀 Eliminated":("❤️".repeat(p.lives)+" "+p.lives+" live"+(p.lives!==1?"s":"")+" remaining")}</div>
                     </div>
-                    {p.picks[today]&&<span style={pill("amber")}>{f(p.picks[today])}</span>}
+                    {getDayPick(p,today)&&<span style={pill("amber")}>{f(getDayPick(p,today).choice)}</span>}
                     <span style={{color:T.muted,fontSize:20}}>›</span>
                   </button>
                   {switchTo?.id===p.id&&(
@@ -529,7 +535,6 @@ export default function App() {
     );
   }
 
-  // ── REGISTER SCREEN ───────────────────────────────────────────────────
   function RegisterScreen() {
     const [name,setName]=useState(""); const [pw1,setPw1]=useState(""); const [pw2,setPw2]=useState(""); const [err,setErr]=useState(""); const [busy,setBusy]=useState(false);
     const ref=useRef(null); useEffect(()=>ref.current?.focus(),[]);
@@ -538,9 +543,7 @@ export default function App() {
       if(!n||n.length<2){setErr("Name must be at least 2 characters.");return;}
       if(!pw1||pw1.length<3){setErr("Password must be at least 3 characters.");return;}
       if(pw1!==pw2){setErr("Passwords don't match.");return;}
-      setBusy(true);
-      const errMsg=await registerPlayer(n,pw1);
-      if(errMsg){setErr(errMsg);setBusy(false);}
+      setBusy(true); const errMsg=await registerPlayer(n,pw1); if(errMsg){setErr(errMsg);setBusy(false);}
     }
     return (
       <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
@@ -550,7 +553,7 @@ export default function App() {
             <div style={{textAlign:"center",marginBottom:22}}>
               <div style={{fontSize:40,marginBottom:6}}>✍️</div>
               <h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:6}}>Register to play</h2>
-              <p style={{fontSize:13,color:T.muted,lineHeight:1.6}}>Pick a name and password. You'll need it each time you sign in.</p>
+              <p style={{fontSize:13,color:T.muted,lineHeight:1.6}}>Pick a name and password.</p>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Your name</div><input ref={ref} style={inp} placeholder="e.g. Danny" value={name} onChange={e=>{setName(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
@@ -565,13 +568,13 @@ export default function App() {
     );
   }
 
-  // ── PICK SCREEN ───────────────────────────────────────────────────────
   function PickScreen() {
     const p=activePlayer;
     if(!p) return <div style={card}><p style={{color:T.muted,marginBottom:12}}>Not signed in.</p><button style={btn()} onClick={()=>setScreen("profile")}>← Choose profile</button></div>;
     const upcomingDates=activeDates.filter(d=>d>=today);
     const groupDatesUpcoming=upcomingDates.filter(d=>phaseOf(d)==="GROUP");
     const koDatesUpcoming=upcomingDates.filter(d=>phaseOf(d)!=="GROUP");
+
     return (
       <>
         <div style={{...card,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
@@ -587,9 +590,14 @@ export default function App() {
         {groupDatesUpcoming.length>0&&(
           <div style={card}>
             <div style={sec}>⚽ Group Stage — pick in advance for any day</div>
-            <p style={{fontSize:12,color:T.muted,marginBottom:16}}>All times BST. 🌙 = early hours — still belongs to this pick day. Deadline = first evening kick-off.</p>
+            <p style={{fontSize:12,color:T.muted,marginBottom:16}}>Pick one match result per day before the first kick-off. 🌙 = early hours UK, still belongs to this day.</p>
             {groupDatesUpcoming.map(pickDate=>{
-              const locked=isLocked(pickDate), matches=matchesByPickDate[pickDate]||[], usedPhase=getPicksInPhase(p,pickDate), todayPick=p.picks[pickDate], outcome=pickOutcome(p,pickDate), dlBST=deadlineBSTByPickDate[pickDate];
+              const locked=isLocked(pickDate);
+              const matches=matchesByPickDate[pickDate]||[];
+              const usedPhase=getPicksInPhase(p,pickDate);
+              const dlBST=deadlineBSTByPickDate[pickDate];
+              const dayPick=getDayPick(p,pickDate);
+
               return (
                 <div key={pickDate} style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
@@ -598,33 +606,44 @@ export default function App() {
                       {pickDate===today&&<span style={pill("blue")}>TODAY</span>}
                       <span style={{fontSize:11,color:T.muted}}>deadline {fmtBST(dlBST)} BST</span>
                     </div>
-                    {todayPick&&(
+                    {dayPick&&(
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{...pill(outcome==="correct"?"green":outcome==="wrong"?"red":"amber"),fontSize:12}}>{f(todayPick)} {todayPick} {outcome==="correct"?"✓":outcome==="wrong"?"✗":""}</span>
-                        {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 8px"}} onClick={()=>clearPick(p.id,pickDate)}>✕</button>}
+                        <span style={{...pill("amber"),fontSize:12}}>{f(dayPick.choice)} {dayPick.choice} ✓</span>
+                        {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 8px"}} onClick={()=>clearPick(p.id,pickDate,dayPick.matchId)}>✕ Change</button>}
                       </div>
                     )}
                   </div>
-                  {!locked&&matches.map(m=>(
-                    <div key={m.id} style={{marginBottom:10}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-                        <span style={pill("muted")}>Grp {m.group}</span>
-                        <span style={{fontSize:11,color:m.earlyHours?T.night:T.muted}}>{m.earlyHours?"🌙 ":""}{fmtBST(m.kickoffBST)} BST</span>
+
+                  {!locked&&matches.map(m=>{
+                    const myPick=p.picks[String(m.id)];
+                    const isPickedHere=!!myPick;
+                    // If player has already picked a different match today, disable this one
+                    const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
+
+                    return (
+                      <div key={m.id} style={{marginBottom:12,opacity:otherMatchPicked?0.4:1}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                          <span style={pill("muted")}>Grp {m.group}</span>
+                          <span style={{fontSize:11,color:m.earlyHours?T.night:T.muted}}>{m.earlyHours?"🌙 ":""}{fmtBST(m.kickoffBST)} BST</span>
+                          {otherMatchPicked&&<span style={{fontSize:11,color:T.muted,fontStyle:"italic"}}>— pick already made for today</span>}
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                          {["Draw",m.home,m.away].map(choice=>{
+                            const usedNotHere=choice!=="Draw"&&usedPhase.includes(choice)&&myPick!==choice;
+                            const sel=myPick===choice;
+                            const disabled=otherMatchPicked||usedNotHere||locked;
+                            return <button key={choice} style={teamBtn(sel,disabled)} disabled={disabled} onClick={()=>!disabled&&makePick(p.id,pickDate,m.id,choice)}>
+                              <span style={{fontSize:choice==="Draw"?14:18}}>{f(choice)}</span>
+                              <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>
+                              {usedNotHere&&<span style={{fontSize:9,color:"#2a4030"}}>used</span>}
+                              {sel&&<span style={{color:T.amber,fontSize:14,flexShrink:0}}>✓</span>}
+                            </button>;
+                          })}
+                        </div>
                       </div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                        {["Draw",m.home,m.away].map(choice=>{
-                          const usedNotToday=choice!=="Draw"&&usedPhase.includes(choice)&&todayPick!==choice, sel=todayPick===choice;
-                          return <button key={choice} style={teamBtn(sel,usedNotToday||locked)} disabled={usedNotToday||locked} onClick={()=>!(usedNotToday||locked)&&makePick(p.id,pickDate,choice)}>
-                            <span style={{fontSize:choice==="Draw"?14:18}}>{f(choice)}</span>
-                            <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>
-                            {usedNotToday&&<span style={{fontSize:9,color:"#2a4030"}}>used</span>}
-                            {sel&&<span style={{color:T.amber,fontSize:14,flexShrink:0}}>✓</span>}
-                          </button>;
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {locked&&!todayPick&&<div style={{fontSize:12,color:T.red}}>⚠️ No pick made — Howard's Law will apply.</div>}
+                    );
+                  })}
+                  {locked&&!dayPick&&<div style={{fontSize:12,color:T.red}}>⚠️ No pick made — Howard's Law will apply.</div>}
                 </div>
               );
             })}
@@ -636,20 +655,34 @@ export default function App() {
             <div style={sec}>🏆 Knockout Rounds</div>
             {koDatesUpcoming.map(pickDate=>{
               const ms=getMatchesForPickDate(pickDate).filter(m=>m.isKnockout); if(!ms.length)return null;
-              const locked=isLocked(pickDate), todayPick=p.picks[pickDate], usedPhase=getPicksInPhase(p,pickDate);
+              const locked=isLocked(pickDate);
+              const dayPick=getDayPick(p,pickDate);
+              const usedPhase=getPicksInPhase(p,pickDate);
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
-                  {ms.map((m,i)=>(
-                    <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                      {[m.home,m.away].map(choice=>{
-                        const u=usedPhase.includes(choice)&&todayPick!==choice, sel=todayPick===choice;
-                        return <button key={choice} style={teamBtn(sel,u||locked)} disabled={u||locked} onClick={()=>!(u||locked)&&makePick(p.id,pickDate,choice)}>
-                          <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
-                        </button>;
-                      })}
+                  {dayPick&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <span style={{...pill("amber"),fontSize:12}}>{f(dayPick.choice)} {dayPick.choice} ✓</span>
+                      {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 8px"}} onClick={()=>clearPick(p.id,pickDate,dayPick.matchId)}>✕ Change</button>}
                     </div>
-                  ))}
+                  )}
+                  {ms.map((m,i)=>{
+                    const myPick=p.picks[String(m.id)];
+                    const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
+                    return (
+                      <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8,opacity:otherMatchPicked?0.4:1}}>
+                        {[m.home,m.away].map(choice=>{
+                          const u=usedPhase.includes(choice)&&myPick!==choice;
+                          const sel=myPick===choice;
+                          const dis=otherMatchPicked||u||locked;
+                          return <button key={choice} style={teamBtn(sel,dis)} disabled={dis} onClick={()=>!dis&&makePick(p.id,pickDate,m.id,choice)}>
+                            <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
+                          </button>;
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -661,12 +694,11 @@ export default function App() {
     );
   }
 
-  // ── GRID VIEW ─────────────────────────────────────────────────────────
   function GridView() {
-    const gridDates=activeDates.filter(d=>d<=today||players.some(p=>p.picks[d])).slice(0,30);
+    const gridDates=activeDates.filter(d=>d<=today||players.some(p=>getDayPick(p,d))).slice(0,30);
     const sorted=[...players].sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
     function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
-    function cellText(player,d){const pick=player.picks[d];if(!pick)return isLocked(d)?"—":"";if(pick==="Draw")return"Draw";return pick.length>8?pick.slice(0,8)+"…":pick;}
+
     return (
       <div style={card}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
@@ -698,7 +730,18 @@ export default function App() {
                       </div>
                     </td>
                     <td style={{padding:"8px",textAlign:"center",fontSize:11}}>{p.eliminated?"💀":"❤️".repeat(p.lives)}</td>
-                    {gridDates.map(d=>{const o=pickOutcome(p,d),bg=cellBg(o),text=cellText(p,d),pick=p.picks[d];return <td key={d} style={{padding:"6px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`}}><div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>{pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{isLocked(d)?"—":""}</span>}</div></td>;})}
+                    {gridDates.map(d=>{
+                      const dp=getDayPick(p,d);
+                      const o=pickOutcomeForDay(p,d);
+                      const bg=cellBg(o);
+                      const pick=dp?dp.choice:null;
+                      const text=pick?(pick==="Draw"?"Draw":pick.length>8?pick.slice(0,8)+"…":pick):(isLocked(d)?"—":"");
+                      return <td key={d} style={{padding:"6px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`}}>
+                        <div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
+                          {pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
+                        </div>
+                      </td>;
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -714,9 +757,8 @@ export default function App() {
     );
   }
 
-  // ── RULES VIEW ────────────────────────────────────────────────────────
   function RulesView() {
-    const rules=[["💰","Entry & prize","£10 per player. Winner takes all."],["⚽","Pick daily","One result per match day before the first evening kick-off (BST). Unlimited changes until then."],["🌙","Early-hours kick-offs","Games kicking off between midnight and 8am BST are grouped with the previous evening's round."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."]];
+    const rules=[["💰","Entry & prize","£10 per player. Winner takes all."],["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline."],["🌙","Early-hours kick-offs","Games kicking off between midnight and 8am BST are grouped with the previous evening's round."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."]];
     return (
       <div><div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
         <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — FIFA World Cup 2026</p></div>
@@ -730,16 +772,14 @@ export default function App() {
     );
   }
 
-  // ── SCHEDULE VIEW ─────────────────────────────────────────────────────
   function Schedule() {
     const phases=[["Group Stage","2026-06-11","2026-06-27"],["Round of 32","2026-06-28","2026-07-03"],["Round of 16","2026-07-04","2026-07-07"],["Quarter-Finals","2026-07-08","2026-07-11"],["Semi-Finals","2026-07-12","2026-07-15"],["3rd Place Play-off","2026-07-18","2026-07-18"],["Final","2026-07-19","2026-07-19"]];
     return phases.map(([label,from,to])=>{
       const dates=allPickDates.filter(d=>d>=from&&d<=to); if(!dates.length)return null;
-      return (<div key={label} style={card}><div style={sec}>{label}</div>{dates.map(pickDate=>{const ms=getMatchesForPickDate(pickDate),dlBST=deadlineBSTByPickDate[pickDate],hasEarly=ms.some(m=>m.earlyHours);return(<div key={pickDate}><div style={{fontSize:12,color:T.amber,fontWeight:700,margin:"10px 0 6px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>{fmtDate(pickDate)}{dlBST&&<span style={{color:T.muted,fontWeight:400,fontSize:11}}>— picks close {fmtBST(dlBST)} BST</span>}{pickDate===today&&<span style={pill("blue")}>TODAY</span>}</div>{ms.length===0&&<div style={{fontSize:12,color:T.muted,padding:"6px 12px"}}>Fixtures TBD</div>}{ms.map((m,i)=><MatchRow key={i} m={m}/>)}</div>);})}</div>);
+      return (<div key={label} style={card}><div style={sec}>{label}</div>{dates.map(pickDate=>{const ms=getMatchesForPickDate(pickDate),dlBST=deadlineBSTByPickDate[pickDate];return(<div key={pickDate}><div style={{fontSize:12,color:T.amber,fontWeight:700,margin:"10px 0 6px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>{fmtDate(pickDate)}{dlBST&&<span style={{color:T.muted,fontWeight:400,fontSize:11}}>— picks close {fmtBST(dlBST)} BST</span>}{pickDate===today&&<span style={pill("blue")}>TODAY</span>}</div>{ms.length===0&&<div style={{fontSize:12,color:T.muted,padding:"6px 12px"}}>Fixtures TBD</div>}{ms.map((m,i)=><MatchRow key={i} m={m}/>)}</div>);})}</div>);
     });
   }
 
-  // ── ADMIN VIEW ────────────────────────────────────────────────────────
   function Admin() {
     const [pw,setPw]=useState(""); const [authed,setAuth]=useState(false);
     const [tab,setTab]=useState("results");
@@ -770,13 +810,14 @@ export default function App() {
         {tab==="results"&&(
           <div style={card}>
             <div style={sec}>🏁 Log Match Results</div>
-            <p style={{color:T.muted,fontSize:12,marginBottom:16}}>Mark the result after each match. Lives updated automatically. Midda's Law checked.</p>
             {pastDates.length===0&&<p style={{color:T.muted}}>No locked days yet.</p>}
             {pastDates.map(pickDate=>(
               <div key={pickDate} style={{marginBottom:20}}>
                 <div style={{fontSize:12,color:T.amber,fontWeight:700,marginBottom:8}}>{fmtDate(pickDate)}</div>
                 {getMatchesForPickDate(pickDate).map((m,i)=>{
-                  const pH=players.filter(p=>p.picks[pickDate]===m.home), pA=players.filter(p=>p.picks[pickDate]===m.away), pD=players.filter(p=>p.picks[pickDate]==="Draw");
+                  const pH=players.filter(p=>p.picks[String(m.id)]===m.home);
+                  const pA=players.filter(p=>p.picks[String(m.id)]===m.away);
+                  const pD=players.filter(p=>p.picks[String(m.id)]==="Draw");
                   const logged=results[`${pickDate}|${m.home}`]||results[`${pickDate}|${m.away}`];
                   return (
                     <div key={i} style={{background:"rgba(0,0,0,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
@@ -819,23 +860,28 @@ export default function App() {
                     <button style={{...btn("amber"),fontSize:12,padding:"7px 14px"}} onClick={async()=>{const nw=(resetPws[p.id]||"").trim();if(nw.length<3){toast_("error","Too short.");return;}await adminResetPassword(p.id,nw);setResetPws(prev=>({...prev,[p.id]:""}));}}>Set</button>
                   </div>
                 </div>
-                <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Edit picks</div>
+                <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Edit picks (per match)</div>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {activeDates.map(pickDate=>{
                     const ms=getMatchesForPickDate(pickDate); if(!ms.length)return null;
-                    const currentPick=p.picks[pickDate], allTeams=[...new Set(ms.flatMap(m=>[m.home,m.away].filter(Boolean)))], opts=phaseOf(pickDate)==="GROUP"?["Draw",...allTeams]:allTeams;
-                    return (
-                      <div key={pickDate} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                        <span style={{fontSize:11,color:T.muted,minWidth:70}}>{fmtDateShort(pickDate)}</span>
-                        <span style={{fontSize:12,color:currentPick?T.amber:T.muted,minWidth:90}}>{currentPick?`${f(currentPick)} ${currentPick}`:"— no pick"}</span>
-                        <select style={{...inp,flex:1,padding:"4px 8px",fontSize:12,minWidth:100}} value={editPicks[`${p.id}_${pickDate}`]||""} onChange={e=>setEditPicks(prev=>({...prev,[`${p.id}_${pickDate}`]:e.target.value}))}>
-                          <option value="">— change to…</option>
-                          {opts.map(t=><option key={t} value={t}>{f(t)} {t}</option>)}
-                          <option value="CLEAR">✕ Clear pick</option>
-                        </select>
-                        <button style={{...btn("amber"),fontSize:11,padding:"4px 10px"}} onClick={async()=>{const val=editPicks[`${p.id}_${pickDate}`];if(!val)return;await adminSetPick(p.id,pickDate,val);setEditPicks(prev=>({...prev,[`${p.id}_${pickDate}`]:""}));}}>Save</button>
-                      </div>
-                    );
+                    return ms.map(m=>{
+                      const currentPick=p.picks[String(m.id)];
+                      const opts=phaseOf(pickDate)==="GROUP"?["Draw",m.home,m.away]:[m.home,m.away];
+                      const eKey=`${p.id}_${m.id}`;
+                      return (
+                        <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:11,color:T.muted,minWidth:60}}>{fmtDateShort(pickDate)}</span>
+                          <span style={{fontSize:11,color:T.muted,minWidth:80}}>{m.home} v {m.away}</span>
+                          <span style={{fontSize:12,color:currentPick?T.amber:T.muted,minWidth:80}}>{currentPick?`${f(currentPick)} ${currentPick}`:"— no pick"}</span>
+                          <select style={{...inp,flex:1,padding:"4px 8px",fontSize:12,minWidth:100}} value={editPicks[eKey]||""} onChange={e=>setEditPicks(prev=>({...prev,[eKey]:e.target.value}))}>
+                            <option value="">— change to…</option>
+                            {opts.map(t=><option key={t} value={t}>{f(t)} {t}</option>)}
+                            <option value="CLEAR">✕ Clear pick</option>
+                          </select>
+                          <button style={{...btn("amber"),fontSize:11,padding:"4px 10px"}} onClick={async()=>{const val=editPicks[eKey];if(!val)return;await adminSetPick(p.id,pickDate,m.id,val);setEditPicks(prev=>({...prev,[eKey]:""}));}}>Save</button>
+                        </div>
+                      );
+                    });
                   })}
                 </div>
               </div>
@@ -846,9 +892,8 @@ export default function App() {
         {tab==="fixtures"&&(
           <div style={card}>
             <div style={sec}>🔧 Set & Edit Knockout Fixtures</div>
-            <p style={{color:T.muted,fontSize:12,marginBottom:16}}>Enter both teams as they qualify. You can edit or correct any fixture at any time.</p>
             {KNOCKOUT_SLOTS.map(slot=>{
-              const existing=koFixtures[slot.id], key=slot.id, isEditing=koInputs[`${key}_editing`];
+              const existing=koFixtures[slot.id],key=slot.id,isEditing=koInputs[`${key}_editing`];
               return (
                 <div key={slot.id} style={{background:"rgba(0,0,0,0.2)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:existing||isEditing?8:0,flexWrap:"wrap"}}>
@@ -925,4 +970,3 @@ export default function App() {
     </div>
   );
 }
-
