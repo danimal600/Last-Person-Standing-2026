@@ -696,9 +696,25 @@ export default function App() {
   }
 
   function GridView() {
+    const [popup, setPopup] = useState(null); // { date, team, pickers }
     const gridDates=activeDates.filter(d=>d<=today||players.some(p=>getDayPick(p,d))).slice(0,30);
-    const sorted=[...players].sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
+
+    // Active player first, then everyone else by lives desc
+    const others = [...players].filter(p=>p.id!=activeId).sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
+    const sorted = activePlayer ? [activePlayer, ...others] : others;
+
     function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
+
+    function handleCellClick(d, pick) {
+      if(!pick||pick==="—"||pick==="") return;
+      // Find all players who picked this team/draw on this day
+      const pickers = players.filter(p=>{
+        const dp=getDayPick(p,d);
+        return dp&&dp.choice===pick;
+      });
+      if(pickers.length===0) return;
+      setPopup({date:d, team:pick, pickers});
+    }
 
     return (
       <div style={card}>
@@ -713,48 +729,53 @@ export default function App() {
               <thead>
                 <tr>
                   <th style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
-                  <th style={{padding:"6px 8px",textAlign:"center",color:T.muted,fontWeight:600,fontSize:10,borderBottom:`1px solid ${T.border}`}}>Lives</th>
                   {gridDates.map(d=><th key={d} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.muted,fontWeight:600,fontSize:10,borderBottom:`1px solid ${T.border}`,minWidth:72,whiteSpace:"nowrap"}}>{fmtDateShort(d)}</th>)}
                 </tr>
                 <tr>
-                  <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2}}></td><td></td>
+                  <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2,borderBottom:`1px solid ${T.border}`}}></td>
                   {gridDates.map(d=>{const ms=getMatchesForPickDate(d);return <td key={d} style={{padding:"3px 4px",textAlign:"center",borderBottom:`1px solid ${T.border}`}}>{ms.map((m,i)=><div key={i} style={{fontSize:9,color:T.muted,lineHeight:1.4,whiteSpace:"nowrap"}}>{m.home&&m.away?`${f(m.home)}v${f(m.away)}`:m.slot?slotLabel(m.slot):""}</div>)}</td>;})}
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((p,pi)=>(
-                  <tr key={p.id} style={{background:pi%2===0?"rgba(0,0,0,0.18)":"transparent"}}>
-                    <td style={{padding:"8px 12px",whiteSpace:"nowrap",position:"sticky",left:0,background:pi%2===0?"#0d1e14":"#101e15",zIndex:1}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:22,height:22,borderRadius:"50%",background:p.eliminated?"#1a2e20":avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",flexShrink:0}}>{initials(p.name)}</div>
-                        <span style={{color:p.eliminated?"#3a5a40":T.text,fontWeight:600}}>{p.name}</span>
-                      </div>
-                    </td>
-                    <td style={{padding:"8px",textAlign:"center",fontSize:11}}>{p.eliminated?"💀":"❤️".repeat(p.lives)}</td>
-                    {gridDates.map(d=>{
-                      const dp=getDayPick(p,d);
-                      const o=pickOutcomeForDay(p,d);
-                      const bg=cellBg(o);
-                      const pick=dp?dp.choice:null;
-                      // For Draw picks, find the match to show teams
-                      let text="";
-                      if(pick==="Draw"&&dp){
-                        const allMs=getMatchesForPickDate(d);
-                        const m=allMs.find(m=>String(m.id)===String(dp.matchId));
-                        text=m?`${f(m.home)}v${f(m.away)}`:"Draw";
-                      } else if(pick){
-                        text=pick.length>8?pick.slice(0,8)+"…":pick;
-                      } else {
-                        text=isLocked(d)?"—":"";
-                      }
-                      return <td key={d} style={{padding:"6px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`}}>
-                        <div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
-                          {pick==="Draw"?<><span style={{fontSize:13}}>⚖️</span> <span style={{fontSize:10}}>{text}</span></>:pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
+                {sorted.map((p,pi)=>{
+                  const isMe = p.id==activeId;
+                  const rowBg = isMe ? "rgba(255,215,0,0.06)" : pi%2===0?"rgba(0,0,0,0.18)":"transparent";
+                  const stickyBg = isMe ? "#0f1a00" : pi%2===0?"#0a1500":"#0c1800";
+                  return (
+                    <tr key={p.id} style={{background:rowBg}}>
+                      <td style={{padding:"6px 12px",whiteSpace:"nowrap",position:"sticky",left:0,background:stickyBg,zIndex:1,borderLeft:isMe?`2px solid ${T.amber}`:"none"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{width:22,height:22,borderRadius:"50%",background:p.eliminated?"#1a2e20":avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",flexShrink:0}}>{initials(p.name)}</div>
+                          <div>
+                            <div style={{color:p.eliminated?"#3a5a40":isMe?T.amber:T.text,fontWeight:700,fontSize:12}}>{p.name}{isMe?" 👤":""}</div>
+                            <div style={{fontSize:10,color:T.muted}}>{p.eliminated?"💀 out":"❤️".repeat(p.lives)}</div>
+                          </div>
                         </div>
-                      </td>;
-                    })}
-                  </tr>
-                ))}
+                      </td>
+                      {gridDates.map(d=>{
+                        const dp=getDayPick(p,d);
+                        const o=pickOutcomeForDay(p,d);
+                        const bg=cellBg(o);
+                        const pick=dp?dp.choice:null;
+                        let text="";
+                        if(pick==="Draw"&&dp){
+                          const allMs=getMatchesForPickDate(d);
+                          const m=allMs.find(m=>String(m.id)===String(dp.matchId));
+                          text=m?`${f(m.home)}v${f(m.away)}`:"Draw";
+                        } else if(pick){
+                          text=pick.length>8?pick.slice(0,8)+"…":pick;
+                        } else {
+                          text=isLocked(d)?"—":"";
+                        }
+                        return <td key={d} onClick={()=>pick&&handleCellClick(d,pick)} style={{padding:"5px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`,cursor:pick?"pointer":"default"}}>
+                          <div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
+                            {pick==="Draw"?<><span style={{fontSize:13}}>⚖️</span> <span style={{fontSize:10}}>{text}</span></>:pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
+                          </div>
+                        </td>;
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -764,6 +785,27 @@ export default function App() {
             <div key={label} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:T.muted}}><div style={{width:14,height:14,borderRadius:3,background:bg}}></div>{label}</div>
           ))}
         </div>
+
+        {/* Pick popup */}
+        {popup&&(
+          <div onClick={()=>setPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:340}}>
+              <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:3,color:T.amber,marginBottom:4}}>{fmtDate(popup.date)}</div>
+              <div style={{fontSize:20,fontWeight:800,color:T.text,marginBottom:16}}>{f(popup.team)} {popup.team}</div>
+              <div style={{fontSize:11,color:T.muted,marginBottom:12}}>{popup.pickers.length} player{popup.pickers.length!==1?"s":""} picked this</div>
+              {popup.pickers.map(p=>(
+                <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",flexShrink:0}}>{initials(p.name)}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14,color:T.text}}>{p.name}</div>
+                    <div style={{fontSize:11,color:T.muted}}>{p.eliminated?"💀 Eliminated":"❤️".repeat(p.lives)+" remaining"}</div>
+                  </div>
+                </div>
+              ))}
+              <button style={{...btn("amber"),width:"100%",marginTop:16}} onClick={()=>setPopup(null)}>Close</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
