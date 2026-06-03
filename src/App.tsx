@@ -226,15 +226,16 @@ function getDayPick(player, pickDate) {
   return null;
 }
 
+// Australian green & gold theme
 const T = {
   cardBg:"rgba(255,255,255,0.05)", border:"rgba(255,255,255,0.10)",
-  amber:"#f0b429", amberBg:"rgba(240,180,41,0.14)", amberBorder:"rgba(240,180,41,0.38)",
-  green:"#3ecf6e", greenBg:"rgba(62,207,110,0.12)", greenBorder:"rgba(62,207,110,0.35)",
+  amber:"#FFD700", amberBg:"rgba(255,215,0,0.14)", amberBorder:"rgba(255,215,0,0.40)",
+  green:"#00843D", greenBg:"rgba(0,132,61,0.15)", greenBorder:"rgba(0,132,61,0.40)",
   red:"#f06060", redBg:"rgba(240,96,96,0.12)", redBorder:"rgba(240,96,96,0.35)",
   blue:"#5ba8e0", blueBg:"rgba(91,168,224,0.12)", blueBorder:"rgba(91,168,224,0.35)",
-  text:"#e8f0e9", muted:"#6a8c72", night:"#c084fc",
-  cellCorrect:"rgba(28,110,50,0.80)", cellWrong:"rgba(160,30,30,0.82)",
-  cellPending:"rgba(160,120,10,0.55)", cellNoPick:"rgba(40,50,60,0.70)",
+  text:"#f5f0dc", muted:"#8a9e72", night:"#c084fc",
+  cellCorrect:"rgba(0,110,45,0.80)", cellWrong:"rgba(160,30,30,0.82)",
+  cellPending:"rgba(160,130,0,0.55)", cellNoPick:"rgba(40,50,60,0.70)",
 };
 const ADMIN_PW = "worldcup2026";
 
@@ -468,15 +469,15 @@ export default function App() {
           {m.slot&&<span style={{...pill("muted"),fontSize:10}}>{slotLabel(m.slot)}</span>}
           <span style={{fontSize:13}}>{m.home?`${f(m.home)} ${m.home}`:"TBD"} <span style={{color:T.muted}}>vs</span> {m.away?`${f(m.away)} ${m.away}`:"TBD"}</span>
         </div>
-        <span style={{fontSize:12,color:m.earlyHours?T.night:T.muted}}>{m.earlyHours?"🌙 ":""}{fmtBST(m.kickoffBST)} BST</span>
+        <span style={{fontSize:12,color:T.muted}}>{fmtBST(m.kickoffBST)} BST</span>
       </div>
     );
   }
 
   if(loading) return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1a10 0%,#0d2016 55%,#0a1a10 100%)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,color:T.amber,fontFamily:"'Segoe UI',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,color:T.amber,fontFamily:"'Segoe UI',sans-serif"}}>
       <div style={{fontSize:48}}>🏆</div>
-      <div style={{fontSize:18,fontWeight:700}}>Last Person Standing</div>
+      <div style={{fontSize:18,fontWeight:700}}>Last Person Standing 2026</div>
       <div style={{fontSize:13,color:T.muted}}>Connecting…</div>
     </div>
   );
@@ -492,8 +493,8 @@ export default function App() {
         <div style={{width:"100%",maxWidth:420}}>
           <div style={{textAlign:"center",marginBottom:28}}>
             <div style={{fontSize:52,filter:"drop-shadow(0 0 18px rgba(240,180,41,0.45))"}}>🏆</div>
-            <h1 style={{fontSize:30,fontWeight:900,color:T.amber,letterSpacing:-0.5,margin:"8px 0 4px"}}>Last Person Standing</h1>
-            <div style={{fontSize:11,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>FIFA World Cup 2026</div>
+            <h1 style={{fontSize:30,fontWeight:900,color:T.amber,letterSpacing:-0.5,margin:"8px 0 4px"}}>Last Person Standing 2026</h1>
+            <div style={{fontSize:11,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>The Ray Gunn Cup</div>
           </div>
           {sorted.length>0&&(
             <div style={{...card,marginBottom:12}}>
@@ -591,7 +592,7 @@ export default function App() {
         {groupDatesUpcoming.length>0&&(
           <div style={card}>
             <div style={sec}>⚽ Group Stage — pick in advance for any day</div>
-            <p style={{fontSize:12,color:T.muted,marginBottom:16}}>Pick one match result per day before the first kick-off. 🌙 = early hours UK, still belongs to this day.</p>
+            <p style={{fontSize:12,color:T.muted,marginBottom:16}}>Pick one match result per day before the first kick-off (BST). Unlimited changes until deadline.</p>
             {groupDatesUpcoming.map(pickDate=>{
               const locked=isLocked(pickDate);
               const matches=matchesByPickDate[pickDate]||[];
@@ -625,7 +626,7 @@ export default function App() {
                       <div key={m.id} style={{marginBottom:12,opacity:otherMatchPicked?0.4:1}}>
                         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
                           <span style={pill("muted")}>Grp {m.group}</span>
-                          <span style={{fontSize:11,color:m.earlyHours?T.night:T.muted}}>{m.earlyHours?"🌙 ":""}{fmtBST(m.kickoffBST)} BST</span>
+                          <span style={{fontSize:11,color:T.muted}}>{fmtBST(m.kickoffBST)} BST</span>
                           {otherMatchPicked&&<span style={{fontSize:11,color:T.muted,fontStyle:"italic"}}>— pick already made for today</span>}
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
@@ -712,12 +713,12 @@ export default function App() {
             <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
               <thead>
                 <tr>
-                  <th style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0f2416",zIndex:2}}>Player</th>
+                  <th style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
                   <th style={{padding:"6px 8px",textAlign:"center",color:T.muted,fontWeight:600,fontSize:10,borderBottom:`1px solid ${T.border}`}}>Lives</th>
                   {gridDates.map(d=><th key={d} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.muted,fontWeight:600,fontSize:10,borderBottom:`1px solid ${T.border}`,minWidth:72,whiteSpace:"nowrap"}}>{fmtDateShort(d)}</th>)}
                 </tr>
                 <tr>
-                  <td style={{position:"sticky",left:0,background:"#0f2416",zIndex:2}}></td><td></td>
+                  <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2}}></td><td></td>
                   {gridDates.map(d=>{const ms=getMatchesForPickDate(d);return <td key={d} style={{padding:"3px 4px",textAlign:"center",borderBottom:`1px solid ${T.border}`}}>{ms.map((m,i)=><div key={i} style={{fontSize:9,color:T.muted,lineHeight:1.4,whiteSpace:"nowrap"}}>{m.home&&m.away?`${f(m.home)}v${f(m.away)}`:m.slot?slotLabel(m.slot):""}</div>)}</td>;})}
                 </tr>
               </thead>
@@ -769,10 +770,10 @@ export default function App() {
   }
 
   function RulesView() {
-    const rules=[["💰","Entry & prize","£10 per player. Winner takes all."],["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline."],["🌙","Early-hours kick-offs","Games kicking off between midnight and 8am BST are grouped with the previous evening's round."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."]];
+    const rules=[["💰","Entry & prize","£10 per player. Winner takes all."],["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."]];
     return (
       <div><div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
-        <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — FIFA World Cup 2026</p></div>
+        <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — The Ray Gunn Cup</p></div>
         {rules.map(([icon,title,desc])=>(
           <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
             <div style={{fontSize:22,flexShrink:0,width:32,textAlign:"center",paddingTop:2}}>{icon}</div>
@@ -835,7 +836,7 @@ export default function App() {
                   const logged=results[`${pickDate}|${m.home}`]||results[`${pickDate}|${m.away}`];
                   return (
                     <div key={i} style={{background:"rgba(0,0,0,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
-                      <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{f(m.home)} {m.home} vs {f(m.away)} {m.away} · {fmtBST(m.kickoffBST)} BST {m.earlyHours?"🌙":""}</div>
+                      <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{f(m.home)} {m.home} vs {f(m.away)} {m.away} · {fmtBST(m.kickoffBST)} BST </div>
                       {logged?<span style={pill("green")}>✓ Result logged</span>:(
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
                           <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.home,m.away,false)}>{f(m.home)} {m.home} won</button>
@@ -950,15 +951,15 @@ export default function App() {
   const isNav=["pick","grid","schedule","rules","admin"].includes(screen);
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1a10 0%,#0d2016 55%,#0a1a10 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}select option{background:#0d2016}button:hover:not(:disabled){filter:brightness(1.1)}`}</style>
       {isNav&&(
-        <header style={{background:"rgba(0,0,0,0.5)",borderBottom:`1px solid ${T.amberBorder}`,padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <header style={{background:"rgba(0,0,0,0.6)",borderBottom:`1px solid ${T.amberBorder}`,padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
           <button style={{display:"flex",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",padding:0}} onClick={()=>setScreen("profile")}>
             <span style={{fontSize:22}}>🏆</span>
             <div style={{textAlign:"left"}}>
-              <div style={{fontSize:16,fontWeight:900,color:T.amber}}>Last Person Standing</div>
-              <div style={{fontSize:9,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>FIFA World Cup 2026</div>
+              <div style={{fontSize:16,fontWeight:900,color:T.amber}}>Last Person Standing 2026</div>
+              <div style={{fontSize:9,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>The Ray Gunn Cup</div>
             </div>
           </button>
           <nav style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
