@@ -580,12 +580,10 @@ export default function App() {
     return (
       <>
         <div style={{...card,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <div style={{width:46,height:46,borderRadius:"50%",background:avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(p.name)}</div>
           <div style={{flex:1}}>
             <div style={{fontSize:17,fontWeight:800}}>{p.name}</div>
             <div style={{fontSize:12,color:T.muted}}>{"❤️".repeat(p.lives)} {p.lives} live{p.lives!==1?"s":""} remaining</div>
           </div>
-
         </div>
 
         {groupDatesUpcoming.length>0&&(
@@ -607,18 +605,10 @@ export default function App() {
                       {pickDate===today&&<span style={pill("blue")}>TODAY</span>}
                       <span style={{fontSize:11,color:T.muted}}>deadline {fmtBST(dlBST)} BST</span>
                     </div>
-                    {dayPick&&(
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{...pill("amber"),fontSize:12}}>{f(dayPick.choice)} {dayPick.choice} ✓</span>
-                        {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 8px"}} onClick={()=>clearPick(p.id,pickDate,dayPick.matchId)}>✕ Change</button>}
-                      </div>
-                    )}
                   </div>
 
                   {!locked&&matches.map(m=>{
                     const myPick=p.picks[String(m.id)];
-                    const isPickedHere=!!myPick;
-                    // If player has already picked a different match today, disable this one
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
 
                     return (
@@ -633,7 +623,13 @@ export default function App() {
                             const usedNotHere=choice!=="Draw"&&usedPhase.includes(choice)&&myPick!==choice;
                             const sel=myPick===choice;
                             const disabled=otherMatchPicked||usedNotHere||locked;
-                            return <button key={choice} style={teamBtn(sel,disabled)} disabled={disabled} onClick={()=>!disabled&&makePick(p.id,pickDate,m.id,choice)}>
+                            // Tap selected pick to clear it
+                            const handleClick=()=>{
+                              if(disabled) return;
+                              if(sel) clearPick(p.id,pickDate,m.id);
+                              else makePick(p.id,pickDate,m.id,choice);
+                            };
+                            return <button key={choice} style={teamBtn(sel,disabled&&!sel)} disabled={disabled&&!sel} onClick={handleClick}>
                               <span style={{fontSize:choice==="Draw"?14:18}}>{f(choice)}</span>
                               <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>
                               {usedNotHere&&<span style={{fontSize:9,color:"#2a4030"}}>used</span>}
@@ -744,12 +740,9 @@ export default function App() {
                   return (
                     <tr key={p.id} style={{background:rowBg}}>
                       <td style={{padding:"6px 12px",whiteSpace:"nowrap",position:"sticky",left:0,background:stickyBg,zIndex:1,borderLeft:isMe?`2px solid ${T.amber}`:"none"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{width:22,height:22,borderRadius:"50%",background:p.eliminated?"#1a2e20":avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",flexShrink:0}}>{initials(p.name)}</div>
-                          <div>
-                            <div style={{color:p.eliminated?"#3a5a40":isMe?T.amber:T.text,fontWeight:700,fontSize:12}}>{p.name}{isMe?" 👤":""}</div>
-                            <div style={{fontSize:10,color:T.muted}}>{p.eliminated?"💀 out":"❤️".repeat(p.lives)}</div>
-                          </div>
+                        <div>
+                          <div style={{color:p.eliminated?"#3a5a40":isMe?T.amber:T.text,fontWeight:700,fontSize:12}}>{p.name}{isMe?" 👤":""}</div>
+                          <div style={{fontSize:10,color:T.muted}}>{p.eliminated?"💀 out":"❤️".repeat(p.lives)}</div>
                         </div>
                       </td>
                       {gridDates.map(d=>{
