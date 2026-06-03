@@ -585,8 +585,7 @@ export default function App() {
             <div style={{fontSize:17,fontWeight:800}}>{p.name}</div>
             <div style={{fontSize:12,color:T.muted}}>{"❤️".repeat(p.lives)} {p.lives} live{p.lives!==1?"s":""} remaining</div>
           </div>
-          <button style={{...btn(),fontSize:12,padding:"7px 12px"}} onClick={()=>setScreen("profile")}>⇄ Switch player</button>
-          <button style={{...btn(),fontSize:12,padding:"7px 12px"}} onClick={()=>setScreen("grid")}>📊 Grid</button>
+
         </div>
 
         {groupDatesUpcoming.length>0&&(
@@ -630,7 +629,7 @@ export default function App() {
                           {otherMatchPicked&&<span style={{fontSize:11,color:T.muted,fontStyle:"italic"}}>— pick already made for today</span>}
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                          {["Draw",m.home,m.away].map(choice=>{
+                          {[m.home,m.away,"Draw"].map(choice=>{
                             const usedNotHere=choice!=="Draw"&&usedPhase.includes(choice)&&myPick!==choice;
                             const sel=myPick===choice;
                             const disabled=otherMatchPicked||usedNotHere||locked;
@@ -881,7 +880,7 @@ export default function App() {
                     const ms=getMatchesForPickDate(pickDate); if(!ms.length)return null;
                     return ms.map(m=>{
                       const currentPick=p.picks[String(m.id)];
-                      const opts=phaseOf(pickDate)==="GROUP"?["Draw",m.home,m.away]:[m.home,m.away];
+                      const opts=phaseOf(pickDate)==="GROUP"?[m.home,m.away,"Draw"]:[m.home,m.away];
                       const eKey=`${p.id}_${m.id}`;
                       return (
                         <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
