@@ -735,10 +735,20 @@ export default function App() {
                       const o=pickOutcomeForDay(p,d);
                       const bg=cellBg(o);
                       const pick=dp?dp.choice:null;
-                      const text=pick?(pick==="Draw"?"Draw":pick.length>8?pick.slice(0,8)+"…":pick):(isLocked(d)?"—":"");
+                      // For Draw picks, find the match to show teams
+                      let text="";
+                      if(pick==="Draw"&&dp){
+                        const allMs=getMatchesForPickDate(d);
+                        const m=allMs.find(m=>String(m.id)===String(dp.matchId));
+                        text=m?`${f(m.home)}v${f(m.away)}`:"Draw";
+                      } else if(pick){
+                        text=pick.length>8?pick.slice(0,8)+"…":pick;
+                      } else {
+                        text=isLocked(d)?"—":"";
+                      }
                       return <td key={d} style={{padding:"6px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`}}>
                         <div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
-                          {pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
+                          {pick==="Draw"?<><span style={{fontSize:13}}>⚖️</span> <span style={{fontSize:10}}>{text}</span></>:pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
                         </div>
                       </td>;
                     })}
