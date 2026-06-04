@@ -203,11 +203,42 @@ function fmtBST(bst) { if(!bst)return"—"; const[h,m]=bst.split(":").map(Number
 function fmtDate(d) { return new Date(d+"T12:00:00Z").toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}); }
 function fmtDateShort(d) { return new Date(d+"T12:00:00Z").toLocaleDateString("en-GB",{day:"numeric",month:"short"}); }
 function slotLabel(slot) {
-  if(slot==="FINAL")return"Final"; if(slot==="3RD")return"3rd Place Play-off";
-  if(slot==="SF-1")return"Semi-Final 1"; if(slot==="SF-2")return"Semi-Final 2";
-  if(slot.startsWith("QF-"))return`Quarter-Final ${slot.slice(3)}`;
-  if(slot.startsWith("R16-"))return`Round of 16 (${slot.slice(4)})`;
-  if(slot.startsWith("R32-"))return`Round of 32 (${slot.slice(4)})`;
+  if(slot==="FINAL")  return "Final";
+  if(slot==="3RD")    return "3rd Place Play-off";
+  if(slot==="SF-1")   return "Semi-Final 1";
+  if(slot==="SF-2")   return "Semi-Final 2";
+  const qfMap={"QF-1":"Quarter-Final 1","QF-2":"Quarter-Final 2","QF-3":"Quarter-Final 3","QF-4":"Quarter-Final 4"};
+  if(qfMap[slot]) return qfMap[slot];
+  const r16Map={
+    "R16-1":"R16: 1E/3rd vs 1I/3rd",
+    "R16-2":"R16: 2A/2B vs 1F/2C",
+    "R16-3":"R16: 1C/2F vs 2E/2I",
+    "R16-4":"R16: 1A/3rd vs 1L/3rd",
+    "R16-5":"R16: 2K/2L vs 1H/2J",
+    "R16-6":"R16: 1D/3rd vs 1G/3rd",
+    "R16-7":"R16: 1J/2H vs 2D/2G",
+    "R16-8":"R16: 1B/3rd vs 1K/3rd",
+  };
+  if(r16Map[slot]) return r16Map[slot];
+  const r32Map={
+    "R32-1":"R32: 2A vs 2B",
+    "R32-2":"R32: 1E vs 3rd(ABCDF)",
+    "R32-3":"R32: 1F vs 2C",
+    "R32-4":"R32: 1C vs 2F",
+    "R32-5":"R32: 1I vs 3rd(CDFGH)",
+    "R32-6":"R32: 2E vs 2I",
+    "R32-7":"R32: 1A vs 3rd(CEFHI)",
+    "R32-8":"R32: 1L vs 3rd(EHIJK)",
+    "R32-9":"R32: 1D vs 3rd(BEFIJ)",
+    "R32-10":"R32: 1G vs 3rd(AEHIJ)",
+    "R32-11":"R32: 2K vs 2L",
+    "R32-12":"R32: 1H vs 2J",
+    "R32-13":"R32: 1B vs 3rd(EFGIJ)",
+    "R32-14":"R32: 1J vs 2H",
+    "R32-15":"R32: 1K vs 3rd(DEIJL)",
+    "R32-16":"R32: 2D vs 2G",
+  };
+  if(r32Map[slot]) return r32Map[slot];
   return slot;
 }
 function avatarBg(name) {
@@ -298,6 +329,398 @@ export default function App() {
   useEffect(() => { loadAll(true); }, [loadAll]);
   useEffect(() => { const i=setInterval(()=>loadAll(false),30000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
+
+  // ── AUTO RESULTS — polls football-data.org every 5 mins ──────────────
+  const FDORG_TOKEN = "73804200936a4d86acaed8a91a7801ad";
+
+  // Map football-data.org team names → our team names
+  const TEAM_NAME_MAP = {
+    "Mexico":"Mexico","South Africa":"South Africa","Korea Republic":"South Korea",
+    "Czechia":"Czechia","Canada":"Canada","Bosnia and Herzegovina":"Bosnia & Herz.",
+    "USA":"USA","United States":"USA","Paraguay":"Paraguay","Qatar":"Qatar",
+    "Switzerland":"Switzerland","Brazil":"Brazil","Morocco":"Morocco","Haiti":"Haiti",
+    "Scotland":"Scotland","Australia":"Australia","Türkiye":"Turkiye","Turkey":"Turkiye",
+    "Germany":"Germany","Curaçao":"Curacao","Curacao":"Curacao","Netherlands":"Netherlands",
+    "Japan":"Japan","Ivory Coast":"Ivory Coast","Côte d'Ivoire":"Ivory Coast",
+    "Ecuador":"Ecuador","Sweden":"Sweden","Tunisia":"Tunisia","Spain":"Spain",
+    "Cape Verde":"Cape Verde","Belgium":"Belgium","Egypt":"Egypt",
+    "Saudi Arabia":"Saudi Arabia","Uruguay":"Uruguay","Iran":"Iran",
+    "New Zealand":"New Zealand","France":"France","Senegal":"Senegal",
+    "Iraq":"Iraq","Norway":"Norway","Argentina":"Argentina","Algeria":"Algeria",
+    "Austria":"Austria","Jordan":"Jordan","Portugal":"Portugal","DR Congo":"DR Congo",
+    "Congo DR":"DR Congo","England":"England","Croatia":"Croatia","Ghana":"Ghana",
+    "Panama":"Panama","Uzbekistan":"Uzbekistan","Colombia":"Colombia",
+    "South Korea":"South Korea","Bosnia & Herzegovina":"Bosnia & Herz.",
+  };
+
+  const autoResultsRef = useRef(false);
+
+  const checkAutoResults = useCallback(async (currentResults, currentPlayers) => {
+    try {
+      const res = await fetch(
+        "https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED",
+        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+      );
+      if(!res.ok) return;
+      const data = await res.json();
+      const matches = data.matches || [];
+
+      for(const match of matches) {
+        const score = match.score?.fullTime;
+        if(!score || score.home === null || score.away === null) continue;
+
+        // Convert date to ET pick date
+        const utcDate = match.utcDate; // e.g. "2026-06-11T19:00:00Z"
+        const etDate = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(new Date(utcDate));
+
+        const rawHome = match.homeTeam?.name || "";
+        const rawAway = match.awayTeam?.name || "";
+        const home = TEAM_NAME_MAP[rawHome] || rawHome;
+        const away = TEAM_NAME_MAP[rawAway] || rawAway;
+
+        // Check if already logged
+        const alreadyLogged = currentResults[`${etDate}|${home}`] || currentResults[`${etDate}|${away}`];
+        if(alreadyLogged) continue;
+
+        // Determine winner
+        const homeScore = score.home;
+        const awayScore = score.away;
+        const isDraw = homeScore === awayScore;
+        const winTeam = isDraw ? home : homeScore > awayScore ? home : away;
+        const loseTeam = isDraw ? away : homeScore > awayScore ? away : home;
+
+        console.log(`Auto-logging: ${home} ${homeScore}-${awayScore} ${away} on ${etDate}`);
+
+        // Log the result
+        const rows = isDraw
+          ? [{pick_date:etDate,team:"Draw",outcome:"draw_correct"},{pick_date:etDate,team:home,outcome:"draw_wrong"},{pick_date:etDate,team:away,outcome:"draw_wrong"}]
+          : [{pick_date:etDate,team:winTeam,outcome:"win"},{pick_date:etDate,team:loseTeam,outcome:"lose"},{pick_date:etDate,team:"Draw",outcome:"draw_wrong"}];
+
+        await supabase.from("results").upsert(rows, {onConflict:"pick_date,team"});
+
+        // Check Midda's Law
+        const active = currentPlayers.filter(p=>!p.eliminated&&p.lives>0);
+        const losers = active.filter(p=>{
+          const dp = getDayPick(p, etDate);
+          if(!dp) return true;
+          return isDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw");
+        });
+        if(losers.length===active.length&&active.length>0) {
+          console.log("Midda's Law — no lives lost for", etDate);
+          continue;
+        }
+
+        // Update lives
+        const updates = [];
+        for(const p of active){
+          const dp = getDayPick(p, etDate);
+          const lost = !dp || (isDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw"));
+          if(lost){ const nl=p.lives-1; updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id)); }
+        }
+        await Promise.all(updates);
+      }
+
+      // Reload data after processing
+      if(matches.length > 0) loadAll(false);
+    } catch(e) {
+      console.error("Auto results error:", e);
+    }
+  }, [loadAll]); // eslint-disable-line
+
+  // Run auto results check every 5 minutes
+  useEffect(() => {
+    const run = () => checkAutoResults(results, players);
+    run();
+    const i = setInterval(run, 5 * 60 * 1000);
+    return () => clearInterval(i);
+  }, [results, players, checkAutoResults]);
+
+  // ── AUTO FIXTURES — populates knockout slots from API standings ───────
+  // R32 fixed pairings (slot id → {home: "1A" or "2B" etc, away: "3X"})
+  // Based on FIFA official bracket
+  const R32_BRACKET = {
+    73:  { home:"2A", away:"2B" },
+    74:  { home:"1E", away:"3rd" },   // 3rd from A/B/C/D/F
+    75:  { home:"1F", away:"2C" },
+    76:  { home:"1C", away:"2F" },
+    77:  { home:"1I", away:"3rd" },   // 3rd from C/D/F/G/H
+    78:  { home:"2E", away:"2I" },
+    79:  { home:"1A", away:"3rd" },   // 3rd from C/E/F/H/I
+    80:  { home:"1L", away:"3rd" },   // 3rd from E/H/I/J/K
+    81:  { home:"1D", away:"3rd" },   // 3rd from B/E/F/I/J
+    82:  { home:"1G", away:"3rd" },   // 3rd from A/E/H/I/J
+    83:  { home:"2K", away:"2L" },
+    84:  { home:"1H", away:"2J" },
+    85:  { home:"1B", away:"3rd" },   // 3rd from E/F/G/I/J
+    86:  { home:"1J", away:"2H" },
+    87:  { home:"1K", away:"3rd" },   // 3rd from D/E/I/J/L
+    88:  { home:"2D", away:"2G" },
+  };
+
+  // R16 bracket — winner of R32 match X plays winner of R32 match Y
+  const R16_BRACKET = {
+    89:  { home:"W74",  away:"W77"  },  // W(1E v 3rd) v W(1I v 3rd)
+    90:  { home:"W73",  away:"W75"  },  // W(2A v 2B) v W(1F v 2C)
+    91:  { home:"W76",  away:"W78"  },  // W(1C v 2F) v W(2E v 2I)
+    92:  { home:"W79",  away:"W80"  },  // W(1A v 3rd) v W(1L v 3rd)
+    93:  { home:"W83",  away:"W84"  },  // W(2K v 2L) v W(1H v 2J)
+    94:  { home:"W81",  away:"W82"  },  // W(1D v 3rd) v W(1G v 3rd)
+    95:  { home:"W86",  away:"W88"  },  // W(1J v 2H) v W(2D v 2G)
+    96:  { home:"W85",  away:"W87"  },  // W(1B v 3rd) v W(1K v 3rd)
+  };
+
+  // QF bracket
+  const QF_BRACKET = {
+    97:  { home:"W89",  away:"W90"  },  // W(89) v W(90)
+    98:  { home:"W93",  away:"W94"  },  // W(93) v W(94)
+    99:  { home:"W91",  away:"W92"  },  // W(91) v W(92)
+    100: { home:"W95",  away:"W96"  },  // W(95) v W(96)
+  };
+
+  // SF bracket
+  const SF_BRACKET = {
+    101: { home:"W97",  away:"W98"  },
+    102: { home:"W99",  away:"W100" },
+  };
+
+  // 3rd place & Final
+  const FINAL_BRACKET = {
+    103: { home:"L101", away:"L102" }, // 3rd place: losers of semis
+    104: { home:"W101", away:"W102" }, // Final: winners of semis
+  };
+
+  // Annex C — maps sorted set of qualifying 3rd-place groups to slot assignments
+  // Format: key = sorted groups joined e.g. "CDEFGHIJ"
+  // value = {1A,1B,1D,1E,1G,1I,1K,1L} opponents for 3rd place slots
+  // (only need the 8 "winner vs 3rd" slots — 74,77,79,80,81,82,85,87)
+  // Slots map: [74,79,77,80,81,82,85,87] → opponents for 1E,1A,1I,1L,1D,1G,1B,1K
+  const ANNEX_C = {
+    "EFGHIJKL": ["3E","3J","3I","3F","3H","3G","3L","3K"],
+    "DFGHIJKL": ["3H","3G","3I","3D","3J","3F","3L","3K"],
+    "DEGHIJKL": ["3E","3J","3I","3D","3H","3G","3L","3K"],
+    "DEFHIJKL": ["3E","3J","3I","3D","3H","3F","3L","3K"],
+    "DEFGIJKL": ["3E","3G","3I","3D","3J","3F","3L","3K"],
+    "DEFGHJKL": ["3E","3G","3J","3D","3H","3F","3L","3K"],
+    "DEFGHIKL": ["3E","3G","3I","3D","3H","3F","3L","3K"],
+    "DEFGHIJL": ["3E","3G","3J","3D","3H","3F","3L","3I"],
+    "DEFGHIJK": ["3E","3G","3J","3D","3H","3F","3I","3K"],
+    "CFGHIJKL": ["3H","3G","3I","3C","3J","3F","3L","3K"],
+    "CEGHIJKL": ["3E","3J","3I","3C","3H","3G","3L","3K"],
+    "CEFHIJKL": ["3E","3J","3I","3C","3H","3F","3L","3K"],
+    "CEFGIJKL": ["3E","3G","3I","3C","3J","3F","3L","3K"],
+    "CEFGHJKL": ["3E","3G","3J","3C","3H","3F","3L","3K"],
+    "CEFGHIKL": ["3E","3G","3I","3C","3H","3F","3L","3K"],
+    "CEFGHIJL": ["3E","3G","3J","3C","3H","3F","3L","3I"],
+    "CEFGHIJK": ["3E","3G","3J","3C","3H","3F","3I","3K"],
+    "CDGHIJKL": ["3H","3G","3I","3C","3J","3D","3L","3K"],
+    "CDFHIJKL": ["3C","3J","3I","3D","3H","3F","3L","3K"],
+    "CDFGIJKL": ["3C","3G","3I","3D","3J","3F","3L","3K"],
+    "CDFGHJKL": ["3C","3G","3J","3D","3H","3F","3L","3K"],
+    "CDFGHIKL": ["3C","3G","3I","3D","3H","3F","3L","3K"],
+    "CDFGHIJL": ["3C","3G","3J","3D","3H","3F","3L","3I"],
+    "CDFGHIJK": ["3C","3G","3J","3D","3H","3F","3I","3K"],
+    "CDEHIJKL": ["3E","3J","3I","3C","3H","3D","3L","3K"],
+    "CDEGHIJKL":["3E","3G","3I","3C","3J","3D","3L","3K"], // fallback shouldn't happen but safety
+    "CDEGJKL":  ["3E","3G","3I","3C","3J","3D","3L","3K"],
+    "CDEGHKL":  ["3E","3G","3J","3C","3H","3D","3L","3K"],
+    "CDEGIJKL": ["3E","3G","3I","3C","3J","3D","3L","3K"],
+    "CDEGIIL":  ["3E","3G","3I","3C","3J","3D","3L","3K"],
+    "CDEGHJKL": ["3E","3G","3J","3C","3H","3D","3L","3K"],
+    "CDEGHIKL": ["3E","3G","3I","3C","3H","3D","3L","3K"],
+    "CDEGHIJL": ["3E","3G","3J","3C","3H","3D","3L","3I"],
+    "CDEGHIJK": ["3E","3G","3J","3C","3H","3D","3I","3K"],
+  };
+
+  // Slots that need 3rd-place teams, in order matching ANNEX_C columns [1E,1A,1I,1L,1D,1G,1B,1K]
+  const THIRD_PLACE_SLOTS = [74, 79, 77, 80, 81, 82, 85, 87];
+
+  const checkAutoFixtures = useCallback(async (currentKoFixtures) => {
+    try {
+      // Get group standings from API
+      const res = await fetch(
+        "https://api.football-data.org/v4/competitions/WC/standings",
+        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+      );
+      if(!res.ok) return;
+      const data = await res.json();
+      const standings = data.standings || [];
+
+      // Build group results: { A: [{team, points, gd, gf, pos}], B: [...], ... }
+      const groups = {};
+      for(const standing of standings) {
+        if(standing.type !== "TOTAL") continue;
+        const group = standing.group?.replace("GROUP_","") || standing.stage;
+        if(!group || group.length !== 1) continue;
+        groups[group] = standing.table.map(row => ({
+          team: TEAM_NAME_MAP[row.team?.name] || row.team?.name,
+          points: row.points,
+          gd: row.goalDifference,
+          gf: row.goalsFor,
+          pos: row.position,
+          played: row.playedGames,
+        }));
+      }
+
+      // Check if group stage is finished (all teams played 3 games)
+      const allGroupsDone = Object.values(groups).every(g =>
+        g.length >= 4 && g.every(t => t.played >= 3)
+      );
+
+      // Populate R32 for any group that has finished
+      const newFixtures = {};
+
+      for(const [group, table] of Object.entries(groups)) {
+        const done = table.length >= 4 && table.every(t => t.played >= 3);
+        if(!done) continue;
+
+        const winner = table.find(t=>t.pos===1)?.team;
+        const runnerUp = table.find(t=>t.pos===2)?.team;
+        if(!winner || !runnerUp) continue;
+
+        // Find R32 slots involving this group's winner or runner-up
+        for(const [slotId, bracket] of Object.entries(R32_BRACKET)) {
+          const sid = Number(slotId);
+          if(currentKoFixtures[sid]) continue; // already set
+
+          if(bracket.home === `1${group}` && winner) {
+            newFixtures[sid] = newFixtures[sid] || {};
+            newFixtures[sid].home = winner;
+          }
+          if(bracket.away === `1${group}` && winner) {
+            newFixtures[sid] = newFixtures[sid] || {};
+            newFixtures[sid].away = winner;
+          }
+          if(bracket.home === `2${group}` && runnerUp) {
+            newFixtures[sid] = newFixtures[sid] || {};
+            newFixtures[sid].home = runnerUp;
+          }
+          if(bracket.away === `2${group}` && runnerUp) {
+            newFixtures[sid] = newFixtures[sid] || {};
+            newFixtures[sid].away = runnerUp;
+          }
+        }
+      }
+
+      // Handle third-place slots once all groups are done
+      if(allGroupsDone) {
+        // Collect all 3rd place teams
+        const thirds = Object.entries(groups)
+          .filter(([,t]) => t.length >= 3)
+          .map(([group, table]) => ({
+            group,
+            team: table.find(t=>t.pos===3)?.team,
+            points: table.find(t=>t.pos===3)?.points || 0,
+            gd: table.find(t=>t.pos===3)?.gd || 0,
+            gf: table.find(t=>t.pos===3)?.gf || 0,
+          }))
+          .filter(t => t.team);
+
+        // Sort by points, then GD, then GF to find best 8
+        thirds.sort((a,b) => b.points-a.points || b.gd-a.gd || b.gf-a.gf);
+        const best8 = thirds.slice(0, 8);
+        const qualGroups = best8.map(t=>t.group).sort().join("");
+
+        // Look up Annex C
+        const annexRow = ANNEX_C[qualGroups];
+        if(annexRow) {
+          THIRD_PLACE_SLOTS.forEach((slotId, i) => {
+            if(currentKoFixtures[slotId]) return;
+            const thirdCode = annexRow[i]; // e.g. "3E"
+            const thirdGroup = thirdCode.slice(1);
+            const thirdTeam = best8.find(t=>t.group===thirdGroup)?.team;
+            if(thirdTeam) {
+              newFixtures[slotId] = newFixtures[slotId] || {};
+              newFixtures[slotId].away = thirdTeam;
+            }
+          });
+        }
+      }
+
+      // Now handle R16/QF/SF/Final from knockout results
+      // Get finished knockout matches from API
+      const koRes = await fetch(
+        "https://api.football-data.org/v4/competitions/WC/matches?stage=LAST_16,QUARTER_FINALS,SEMI_FINALS,FINAL&status=FINISHED",
+        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+      );
+      if(koRes.ok) {
+        const koData = await koRes.json();
+        const koMatches = koData.matches || [];
+
+        // Map API match IDs to our slot IDs using kickoff date + teams
+        // For each finished KO match, find winner and populate next round
+        for(const match of koMatches) {
+          const score = match.score?.fullTime;
+          if(!score) continue;
+          const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
+          const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
+          const winner = score.home > score.away ? home : away;
+
+          // Find which slot this match corresponds to in our app
+          // by matching the teams to existing ko fixtures
+          const matchSlot = Object.entries({...currentKoFixtures,...newFixtures})
+            .find(([,fix]) => fix.home===home && fix.away===away || fix.home===away && fix.away===home);
+
+          if(!matchSlot) continue;
+          const slotId = Number(matchSlot[0]);
+          const winCode = `W${slotId}`;
+          const loseCode = `L${slotId}`;
+          const loser = score.home > score.away ? away : home;
+
+          // Find next round slots that need this winner/loser
+          for(const brackets of [R16_BRACKET, QF_BRACKET, SF_BRACKET, FINAL_BRACKET]) {
+            for(const [nextSlotId, bracket] of Object.entries(brackets)) {
+              const nsid = Number(nextSlotId);
+              if(currentKoFixtures[nsid]) continue;
+              if(bracket.home === winCode) {
+                newFixtures[nsid] = newFixtures[nsid] || {};
+                newFixtures[nsid].home = winner;
+              }
+              if(bracket.away === winCode) {
+                newFixtures[nsid] = newFixtures[nsid] || {};
+                newFixtures[nsid].away = winner;
+              }
+              if(bracket.home === loseCode) {
+                newFixtures[nsid] = newFixtures[nsid] || {};
+                newFixtures[nsid].home = loser;
+              }
+              if(bracket.away === loseCode) {
+                newFixtures[nsid] = newFixtures[nsid] || {};
+                newFixtures[nsid].away = loser;
+              }
+            }
+          }
+        }
+      }
+
+      // Save any complete new fixtures (both home and away known)
+      const saves = [];
+      for(const [slotId, fix] of Object.entries(newFixtures)) {
+        if(fix.home && fix.away) {
+          saves.push(
+            supabase.from("ko_fixtures").upsert(
+              { slot_id: Number(slotId), home: fix.home, away: fix.away },
+              { onConflict: "slot_id" }
+            )
+          );
+          console.log(`Auto-fixture: slot ${slotId} → ${fix.home} vs ${fix.away}`);
+        }
+      }
+      if(saves.length > 0) {
+        await Promise.all(saves);
+        loadAll(false);
+      }
+    } catch(e) {
+      console.error("Auto fixtures error:", e);
+    }
+  }, [loadAll]); // eslint-disable-line
+
+  // Check fixtures every 10 minutes (less frequent than results)
+  useEffect(() => {
+    const run = () => checkAutoFixtures(koFixtures);
+    run();
+    const i = setInterval(run, 10 * 60 * 1000);
+    return () => clearInterval(i);
+  }, [koFixtures, checkAutoFixtures]);
 
   // pickOutcome for grid — check if the player has a pick for this match on this date
   function pickOutcomeForMatch(player, matchId, pickDate) {
@@ -544,7 +967,7 @@ export default function App() {
     async function go(){
       const n=name.trim();
       if(!n||n.length<2){setErr("Name must be at least 2 characters.");return;}
-      if(n.length>10){setErr("Name must be 10 characters or less.");return;}
+      if(n.length>12){setErr("Name must be 12 characters or less.");return;}
       if(!pw1||pw1.length<3){setErr("Password must be at least 3 characters.");return;}
       if(pw1!==pw2){setErr("Passwords don't match.");return;}
       setBusy(true); const errMsg=await registerPlayer(n,pw1); if(errMsg){setErr(errMsg);setBusy(false);}
@@ -560,7 +983,7 @@ export default function App() {
               <p style={{fontSize:13,color:T.muted,lineHeight:1.6}}>Pick a name and password.</p>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Your name</div><input ref={ref} style={inp} placeholder="e.g. Danny" maxLength={10} value={name} onChange={e=>{setName(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
+              <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Your name</div><input ref={ref} style={inp} placeholder="e.g. Danny" maxLength={12} value={name} onChange={e=>{setName(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
               <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Choose a password</div><input style={inp} type="password" placeholder="At least 3 characters" value={pw1} onChange={e=>{setPw1(e.target.value);setErr("");}} /></div>
               <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Confirm password</div><input style={inp} type="password" placeholder="Repeat password" value={pw2} onChange={e=>{setPw2(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
               {err&&<div style={{color:T.red,fontSize:13}}>{err}</div>}
@@ -923,7 +1346,7 @@ export default function App() {
     }
     async function renamePlayer(pid, name) {
       const n=name.trim(); if(!n||n.length<2){toast_("error","Name too short.");return;}
-      if(n.length>10){toast_("error","Name must be 10 characters or less.");return;}
+      if(n.length>12){toast_("error","Name must be 12 characters or less.");return;}
       await supabase.from("players").update({name:n}).eq("id",pid);
       toast_("success","Name updated."); loadAll(false);
     }
@@ -949,7 +1372,7 @@ export default function App() {
                   return (
                     <div key={i} style={{background:"rgba(0,0,0,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
                       <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{f(m.home)} {m.home} vs {f(m.away)} {m.away} · {fmtBST(m.kickoffBST)} BST</div>
-                      {logged?<span style={pill("green")}>✓ Result logged</span>:(
+                      {logged?<span style={pill("green")}>✓ {logged==="auto"?"🤖 Auto-logged":"Result logged"}</span>:(
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
                           <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.home,m.away,false)}>{f(m.home)} {m.home} won</button>
                           <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.away,m.home,false)}>{f(m.away)} {m.away} won</button>
