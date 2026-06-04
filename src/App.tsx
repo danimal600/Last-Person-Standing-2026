@@ -247,6 +247,7 @@ export default function App() {
   const [results,    setResults]    = useState({});
   const [loading,    setLoading]    = useState(true);
   const [toast,      setToast]      = useState(null);
+  const [adminAuthed, setAdminAuthed] = useState(false);
   const toastRef = useRef(null);
 
   const activePlayer = players.find(p=>p.id==activeId)||null;
@@ -692,31 +693,52 @@ export default function App() {
   }
 
   function GridView() {
-    const [popup, setPopup] = useState(null); // { date, team, pickers }
+    const [popup, setPopup] = useState(null);
+    const [datePopup, setDatePopup] = useState(null);
     const gridDates=activeDates.filter(d=>d<=today||players.some(p=>getDayPick(p,d))).slice(0,30);
-
-    // Active player first, then everyone else by lives desc
+    const activePlayers = players.filter(p=>!p.eliminated);
+    const pot = players.length * 10;
     const others = [...players].filter(p=>p.id!=activeId).sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
     const sorted = activePlayer ? [activePlayer, ...others] : others;
-
     function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
-
     function handleCellClick(d, pick) {
       if(!pick||pick==="—"||pick==="") return;
-      // Find all players who picked this team/draw on this day
-      const pickers = players.filter(p=>{
-        const dp=getDayPick(p,d);
-        return dp&&dp.choice===pick;
-      });
+      const pickers = players.filter(p=>{const dp=getDayPick(p,d);return dp&&dp.choice===pick;});
       if(pickers.length===0) return;
       setPopup({date:d, team:pick, pickers});
     }
-
+    function handleDateClick(d) {
+      const ms = getMatchesForPickDate(d);
+      if(ms.length===0) return;
+      setDatePopup({date:d, matches:ms});
+    }
+    function handleMatchesClick(d) {
+      const ms = getMatchesForPickDate(d);
+      if(ms.length===0) return;
+      const seen = new Set();
+      const allChoices = [];
+      ms.forEach(m => {
+        const opts = phaseOf(d)==="GROUP" ? [m.home, m.away, "Draw"] : [m.home, m.away];
+        opts.forEach(choice => {
+          if(seen.has(choice)) return; seen.add(choice);
+          const pickers = players.filter(p => {const dp=getDayPick(p,d); return dp&&dp.choice===choice;});
+          allChoices.push({choice, count: pickers.length, pickers});
+        });
+      });
+      allChoices.sort((a,b)=>b.count-a.count);
+      setPopup({date:d, team:null, matchSummary:allChoices, matches:ms});
+    }
     return (
       <div style={card}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-          <div style={sec}>📊 All Picks — Live Grid</div>
-          <button style={{...btn("amber"),fontSize:13,padding:"7px 14px"}} onClick={()=>setScreen("profile")}>Make my picks →</button>
+        <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:3,color:T.amber,marginBottom:6}}>The Ray Gunn Cup</div>
+            <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+              <div><span style={{fontSize:22,fontWeight:900,color:T.amber}}>£{pot}</span><span style={{fontSize:12,color:T.muted,marginLeft:6}}>pot</span></div>
+              <div><span style={{fontSize:22,fontWeight:900,color:T.text}}>{players.length}</span><span style={{fontSize:12,color:T.muted,marginLeft:6}}>players</span></div>
+              <div><span style={{fontSize:22,fontWeight:900,color:T.green}}>{activePlayers.length}</span><span style={{fontSize:12,color:T.muted,marginLeft:6}}>still in</span></div>
+            </div>
+          </div>
         </div>
         {gridDates.length===0&&<div style={{textAlign:"center",padding:"32px 0",color:T.muted}}><div style={{fontSize:36,marginBottom:12}}>⏳</div>Grid fills as players make picks.</div>}
         {gridDates.length>0&&(
@@ -725,11 +747,15 @@ export default function App() {
               <thead>
                 <tr>
                   <th style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
-                  {gridDates.map(d=><th key={d} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.muted,fontWeight:600,fontSize:10,borderBottom:`1px solid ${T.border}`,minWidth:72,whiteSpace:"nowrap"}}>{fmtDateShort(d)}</th>)}
+                  {gridDates.map(d=><th key={d} onClick={()=>handleDateClick(d)} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.text,fontWeight:700,fontSize:11,borderBottom:`1px solid ${T.border}`,minWidth:76,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtDateShort(d)}</th>)}
+                </tr>
+                <tr>
+                  <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2,padding:"2px 12px",fontSize:9,color:T.muted,borderBottom:`1px solid ${T.border}`}}>deadline →</td>
+                  {gridDates.map(d=>{const dl=deadlineBSTByPickDate[d];return <td key={d} style={{padding:"2px 4px",textAlign:"center",fontSize:9,color:T.muted,borderBottom:`1px solid ${T.border}`}}>{dl?fmtBST(dl):""}</td>;})}
                 </tr>
                 <tr>
                   <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2,borderBottom:`1px solid ${T.border}`}}></td>
-                  {gridDates.map(d=>{const ms=getMatchesForPickDate(d);return <td key={d} style={{padding:"3px 4px",textAlign:"center",borderBottom:`1px solid ${T.border}`}}>{ms.map((m,i)=><div key={i} style={{fontSize:9,color:T.muted,lineHeight:1.4,whiteSpace:"nowrap"}}>{m.home&&m.away?`${f(m.home)}v${f(m.away)}`:m.slot?slotLabel(m.slot):""}</div>)}</td>;})}
+                  {gridDates.map(d=>{const ms=getMatchesForPickDate(d);return <td key={d} onClick={()=>handleMatchesClick(d)} style={{padding:"3px 4px",textAlign:"center",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}>{ms.map((m,i)=><div key={i} style={{fontSize:9,color:T.muted,lineHeight:1.4,whiteSpace:"nowrap"}}>{m.home&&m.away?`${f(m.home)}v${f(m.away)}`:m.slot?slotLabel(m.slot):""}</div>)}</td>;})}
                 </tr>
               </thead>
               <tbody>
@@ -751,15 +777,9 @@ export default function App() {
                         const bg=cellBg(o);
                         const pick=dp?dp.choice:null;
                         let text="";
-                        if(pick==="Draw"&&dp){
-                          const allMs=getMatchesForPickDate(d);
-                          const m=allMs.find(m=>String(m.id)===String(dp.matchId));
-                          text=m?`${f(m.home)}v${f(m.away)}`:"Draw";
-                        } else if(pick){
-                          text=pick.length>8?pick.slice(0,8)+"…":pick;
-                        } else {
-                          text=isLocked(d)?"—":"";
-                        }
+                        if(pick==="Draw"&&dp){const allMs=getMatchesForPickDate(d);const m=allMs.find(m=>String(m.id)===String(dp.matchId));text=m?`${f(m.home)}v${f(m.away)}`:"Draw";}
+                        else if(pick){text=pick.length>8?pick.slice(0,8)+"…":pick;}
+                        else{text=isLocked(d)?"—":"";}
                         return <td key={d} onClick={()=>pick&&handleCellClick(d,pick)} style={{padding:"5px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`,cursor:pick?"pointer":"default"}}>
                           <div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
                             {pick==="Draw"?<><span style={{fontSize:13}}>⚖️</span> <span style={{fontSize:10}}>{text}</span></>:pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
@@ -774,27 +794,65 @@ export default function App() {
           </div>
         )}
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:16}}>
-          {[[T.cellCorrect,"✓ Correct"],[T.cellWrong,"✗ Wrong"],[T.cellPending,"⏳ Result pending"],[T.cellNoPick,"— No pick"]].map(([bg,label])=>(
+          {[[T.cellCorrect,"✓ Correct"],[T.cellWrong,"✗ Wrong"],[T.cellPending,"⏳ Pending"],[T.cellNoPick,"— No pick"]].map(([bg,label])=>(
             <div key={label} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:T.muted}}><div style={{width:14,height:14,borderRadius:3,background:bg}}></div>{label}</div>
           ))}
         </div>
-
-        {/* Pick popup */}
-        {popup&&(
-          <div onClick={()=>setPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-            <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:340}}>
-              <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:3,color:T.amber,marginBottom:4}}>{fmtDate(popup.date)}</div>
-              <div style={{fontSize:20,fontWeight:800,color:T.text,marginBottom:16}}>{f(popup.team)} {popup.team}</div>
-              <div style={{fontSize:11,color:T.muted,marginBottom:12}}>{popup.pickers.length} player{popup.pickers.length!==1?"s":""} picked this</div>
-              {popup.pickers.map(p=>(
-                <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
-                  <div style={{width:32,height:32,borderRadius:"50%",background:avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"#fff",flexShrink:0}}>{initials(p.name)}</div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:14,color:T.text}}>{p.name}</div>
-                    <div style={{fontSize:11,color:T.muted}}>{p.eliminated?"💀 Eliminated":"❤️".repeat(p.lives)+" remaining"}</div>
-                  </div>
+        {datePopup&&(
+          <div onClick={()=>setDatePopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:360}}>
+              <div style={{fontSize:16,fontWeight:800,color:T.amber,marginBottom:16}}>{fmtDate(datePopup.date)}</div>
+              {datePopup.matches.map((m,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:14}}>{f(m.home)} {m.home} <span style={{color:T.muted}}>vs</span> {f(m.away)} {m.away}</div>
+                  <div style={{fontSize:12,color:T.muted,marginLeft:12,flexShrink:0}}>{fmtBST(m.kickoffBST)}</div>
                 </div>
               ))}
+              <div style={{fontSize:11,color:T.muted,marginTop:12}}>Picks close {fmtBST(deadlineBSTByPickDate[datePopup.date])} BST</div>
+              <button style={{...btn("amber"),width:"100%",marginTop:16}} onClick={()=>setDatePopup(null)}>Close</button>
+            </div>
+          </div>
+        )}
+        {popup&&(
+          <div onClick={()=>setPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:380,maxHeight:"80vh",overflowY:"auto"}}>
+              {popup.matchSummary ? (
+                <>
+                  <div style={{fontSize:16,fontWeight:800,color:T.amber,marginBottom:4}}>{fmtDate(popup.date)}</div>
+                  <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Who picked what — most popular first</div>
+                  {popup.matchSummary.filter(x=>x.count>0).map((item,i)=>(
+                    <div key={i} style={{marginBottom:14}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                        <div style={{fontSize:15,fontWeight:700}}>{item.choice==="Draw"?"⚖️ Draw":`${f(item.choice)} ${item.choice}`}</div>
+                        <span style={{...pill("amber"),fontSize:12}}>{item.count} pick{item.count!==1?"s":""}</span>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {item.pickers.map(p=>(
+                          <div key={p.id} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.05)",borderRadius:8,padding:"4px 10px"}}>
+                            <span style={{fontSize:12,fontWeight:600,color:T.text}}>{p.name}</span>
+                            <span style={{fontSize:10,color:T.muted}}>{"❤️".repeat(p.lives)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {popup.matchSummary.filter(x=>x.count>0).length===0&&<div style={{color:T.muted,fontSize:13}}>No picks made yet.</div>}
+                </>
+              ) : (
+                <>
+                  <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:3,color:T.amber,marginBottom:4}}>{fmtDate(popup.date)}</div>
+                  <div style={{fontSize:20,fontWeight:800,color:T.text,marginBottom:16}}>{f(popup.team)} {popup.team}</div>
+                  <div style={{fontSize:11,color:T.muted,marginBottom:12}}>{popup.pickers.length} player{popup.pickers.length!==1?"s":""} picked this</div>
+                  {popup.pickers.map(p=>(
+                    <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:14,color:T.text}}>{p.name}</div>
+                        <div style={{fontSize:11,color:T.muted}}>{p.eliminated?"💀 Eliminated":"❤️".repeat(p.lives)+" remaining"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
               <button style={{...btn("amber"),width:"100%",marginTop:16}} onClick={()=>setPopup(null)}>Close</button>
             </div>
           </div>
@@ -804,16 +862,17 @@ export default function App() {
   }
 
   function RulesView() {
-    const rules=[["💰","Entry & prize","£10 per player. Winner takes all."],["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."]];
+    const rules=[["💰","Entry & prize","£10 per player. Winner takes all. All players must pay their entry fee before the tournament starts, and send their £10 to the winner promptly at the end. No excuses.","https://pay.collctiv.com/lps-2026-77059"],["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."],["🎬","Kejal's Rule","All winners are contractually obliged to create a piece of content for the Ray Gunn launch video, in perpetuity. Failure to deliver will result in an embarrassing photo being used as the WhatsApp group photo, or other elements of humiliation at Danny's discretion."]];
     return (
       <div><div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
         <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — The Ray Gunn Cup</p></div>
-        {rules.map(([icon,title,desc])=>(
+        {rules.map(([icon,title,desc,link])=>(
           <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
             <div style={{fontSize:22,flexShrink:0,width:32,textAlign:"center",paddingTop:2}}>{icon}</div>
             <div style={{flex:1}}>
               <div style={{fontWeight:700,fontSize:14,color:T.amber,marginBottom:4}}>{title}</div>
               <div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div>
+              {link&&<a href={link} target="_blank" rel="noreferrer" style={{display:"inline-block",marginTop:8,fontSize:13,color:T.amber,fontWeight:700,textDecoration:"underline"}}>💳 Pay £10 entry fee →</a>}
             </div>
           </div>
         ))}
@@ -829,31 +888,48 @@ export default function App() {
     });
   }
 
+
   function Admin() {
-    const [pw,setPw]=useState(""); const [authed,setAuth]=useState(false);
+    const [pw,setPw]=useState("");
     const [tab,setTab]=useState("results");
     const [koInputs,setKoInputs]=useState({});
     const [editPicks,setEditPicks]=useState({});
-    const [resetPws,setResetPws]=useState({});
+    const [selectedPlayer,setSelectedPlayer]=useState(null);
+    const [newName,setNewName]=useState("");
+    const [newPw,setNewPw]=useState("");
+    const [confirmDelete,setConfirmDelete]=useState(false);
 
-    if(!authed) return (
+    if(!adminAuthed) return (
       <div style={{maxWidth:340,margin:"60px auto"}}>
         <div style={{...card,padding:28,textAlign:"center"}}>
           <div style={{fontSize:32,marginBottom:10}}>🔐</div>
           <div style={{fontWeight:700,fontSize:17,color:T.amber,marginBottom:18}}>Admin Access</div>
-          <input style={{...inp,textAlign:"center",marginBottom:12}} type="password" placeholder="Admin password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(pw===ADMIN_PW?setAuth(true):toast_("error","Wrong password"))} />
-          <button style={{...btn("amber"),width:"100%"}} onClick={()=>pw===ADMIN_PW?setAuth(true):toast_("error","Wrong password")}>Enter</button>
+          <input style={{...inp,textAlign:"center",marginBottom:12}} type="password" placeholder="Admin password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&(pw===ADMIN_PW?setAdminAuthed(true):toast_("error","Wrong password"))} />
+          <button style={{...btn("amber"),width:"100%"}} onClick={()=>pw===ADMIN_PW?setAdminAuthed(true):toast_("error","Wrong password")}>Enter</button>
         </div>
       </div>
     );
 
     const tabs=[["results","🏁 Results"],["players","👤 Players"],["fixtures","🔧 Fixtures"]];
     const pastDates=activeDates.filter(d=>isLocked(d));
+    const selP = selectedPlayer ? players.find(p=>p.id===selectedPlayer) : null;
+
+    async function deletePlayer(pid) {
+      await supabase.from("picks").delete().eq("player_id",pid);
+      await supabase.from("players").delete().eq("id",pid);
+      setSelectedPlayer(null); setConfirmDelete(false);
+      toast_("info","Player deleted."); loadAll(false);
+    }
+    async function renamePlayer(pid, name) {
+      const n=name.trim(); if(!n||n.length<2){toast_("error","Name too short.");return;}
+      await supabase.from("players").update({name:n}).eq("id",pid);
+      toast_("success","Name updated."); loadAll(false);
+    }
 
     return (
       <>
         <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-          {tabs.map(([k,l])=><button key={k} style={{...navBtn(tab===k),fontSize:13}} onClick={()=>setTab(k)}>{l}</button>)}
+          {tabs.map(([k,l])=><button key={k} style={{...navBtn(tab===k),fontSize:13}} onClick={()=>{setTab(k);setSelectedPlayer(null);setConfirmDelete(false);}}>{l}</button>)}
         </div>
 
         {tab==="results"&&(
@@ -870,7 +946,7 @@ export default function App() {
                   const logged=results[`${pickDate}|${m.home}`]||results[`${pickDate}|${m.away}`];
                   return (
                     <div key={i} style={{background:"rgba(0,0,0,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
-                      <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{f(m.home)} {m.home} vs {f(m.away)} {m.away} · {fmtBST(m.kickoffBST)} BST </div>
+                      <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{f(m.home)} {m.home} vs {f(m.away)} {m.away} · {fmtBST(m.kickoffBST)} BST</div>
                       {logged?<span style={pill("green")}>✓ Result logged</span>:(
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
                           <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.home,m.away,false)}>{f(m.home)} {m.home} won</button>
@@ -888,53 +964,91 @@ export default function App() {
           </div>
         )}
 
-        {tab==="players"&&(
+        {tab==="players"&&!selectedPlayer&&(
           <div style={card}>
-            <div style={sec}>👤 Manage Players</div>
-            {players.map(p=>(
-              <div key={p.id} style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
-                  <div style={{width:36,height:36,borderRadius:"50%",background:avatarBg(p.name),display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:"#fff"}}>{initials(p.name)}</div>
-                  <div style={{flex:1}}><div style={{fontWeight:700,fontSize:15}}>{p.name}</div><div style={{fontSize:12,color:T.muted}}>{p.eliminated?"💀 Eliminated":"❤️".repeat(p.lives)+" "+p.lives+" lives"}</div></div>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <button style={{...btn("danger"),fontSize:12,padding:"4px 10px"}} onClick={()=>adminAdjustLives(p.id,-1)}>−</button>
-                    <span style={{fontSize:13,minWidth:20,textAlign:"center"}}>{p.lives}</span>
-                    <button style={{...btn("green"),fontSize:12,padding:"4px 10px"}} onClick={()=>adminAdjustLives(p.id,1)}>+</button>
-                  </div>
+            <div style={sec}>👤 Players — tap to manage</div>
+            {[...players].sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name)).map(p=>(
+              <button key={p.id} onClick={()=>{setSelectedPlayer(p.id);setNewName(p.name);setNewPw("");setConfirmDelete(false);}}
+                style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(0,0,0,0.2)",border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",cursor:"pointer",marginBottom:8,gap:12}}>
+                <div style={{textAlign:"left"}}>
+                  <div style={{fontWeight:700,fontSize:14,color:p.eliminated?"#3a5a40":T.text}}>{p.name}</div>
+                  <div style={{fontSize:11,color:T.muted,marginTop:2}}>{p.eliminated?"💀 Eliminated":"❤️".repeat(p.lives)}</div>
                 </div>
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,color:T.muted,marginBottom:6}}>Reset password</div>
-                  <div style={{display:"flex",gap:8}}>
-                    <input type="password" placeholder="New password" style={{...inp,flex:1,padding:"7px 10px",fontSize:13}} value={resetPws[p.id]||""} onChange={e=>setResetPws(prev=>({...prev,[p.id]:e.target.value}))} />
-                    <button style={{...btn("amber"),fontSize:12,padding:"7px 14px"}} onClick={async()=>{const nw=(resetPws[p.id]||"").trim();if(nw.length<3){toast_("error","Too short.");return;}await adminResetPassword(p.id,nw);setResetPws(prev=>({...prev,[p.id]:""}));}}>Set</button>
-                  </div>
-                </div>
-                <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Edit picks (per match)</div>
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                  {activeDates.map(pickDate=>{
-                    const ms=getMatchesForPickDate(pickDate); if(!ms.length)return null;
-                    return ms.map(m=>{
-                      const currentPick=p.picks[String(m.id)];
-                      const opts=phaseOf(pickDate)==="GROUP"?[m.home,m.away,"Draw"]:[m.home,m.away];
-                      const eKey=`${p.id}_${m.id}`;
-                      return (
-                        <div key={m.id} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11,color:T.muted,minWidth:60}}>{fmtDateShort(pickDate)}</span>
-                          <span style={{fontSize:11,color:T.muted,minWidth:80}}>{m.home} v {m.away}</span>
-                          <span style={{fontSize:12,color:currentPick?T.amber:T.muted,minWidth:80}}>{currentPick?`${f(currentPick)} ${currentPick}`:"— no pick"}</span>
-                          <select style={{...inp,flex:1,padding:"4px 8px",fontSize:12,minWidth:100}} value={editPicks[eKey]||""} onChange={e=>setEditPicks(prev=>({...prev,[eKey]:e.target.value}))}>
+                <span style={{color:T.muted,fontSize:20}}>›</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {tab==="players"&&selectedPlayer&&selP&&(
+          <div style={card}>
+            <button style={{...btn(),fontSize:13,marginBottom:16}} onClick={()=>{setSelectedPlayer(null);setConfirmDelete(false);}}>← All players</button>
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:20,fontWeight:800,color:T.amber,marginBottom:4}}>{selP.name}</div>
+              <div style={{fontSize:13,color:T.muted}}>{selP.eliminated?"💀 Eliminated":"❤️".repeat(selP.lives)+" "+selP.lives+" lives"}</div>
+            </div>
+            <div style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:11,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:2}}>Lives</div>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <button style={{...btn("danger"),fontSize:16,padding:"6px 14px"}} onClick={()=>adminAdjustLives(selP.id,-1)}>−</button>
+                <span style={{fontSize:20,fontWeight:800,minWidth:30,textAlign:"center"}}>{selP.lives}</span>
+                <button style={{...btn("green"),fontSize:16,padding:"6px 14px"}} onClick={()=>adminAdjustLives(selP.id,1)}>+</button>
+              </div>
+            </div>
+            <div style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:11,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:2}}>Change name</div>
+              <div style={{display:"flex",gap:8}}>
+                <input style={{...inp,flex:1,padding:"8px 12px",fontSize:13}} value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&renamePlayer(selP.id,newName)} />
+                <button style={{...btn("amber"),fontSize:12,padding:"8px 14px"}} onClick={()=>renamePlayer(selP.id,newName)}>Save</button>
+              </div>
+            </div>
+            <div style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:11,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:2}}>Reset password</div>
+              <div style={{display:"flex",gap:8}}>
+                <input type="password" placeholder="New password" style={{...inp,flex:1,padding:"8px 12px",fontSize:13}} value={newPw} onChange={e=>setNewPw(e.target.value)} />
+                <button style={{...btn("amber"),fontSize:12,padding:"8px 14px"}} onClick={async()=>{const n=newPw.trim();if(n.length<3){toast_("error","Too short.");return;}await adminResetPassword(selP.id,n);setNewPw("");}}>Set</button>
+              </div>
+            </div>
+            <div style={{marginBottom:20,paddingBottom:20,borderBottom:`1px solid ${T.border}`}}>
+              <div style={{fontSize:11,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:2}}>Edit picks</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {activeDates.map(pickDate=>{
+                  const ms=getMatchesForPickDate(pickDate); if(!ms.length)return null;
+                  return ms.map(m=>{
+                    const currentPick=selP.picks[String(m.id)];
+                    const opts=phaseOf(pickDate)==="GROUP"?[m.home,m.away,"Draw"]:[m.home,m.away];
+                    const eKey=`${selP.id}_${m.id}`;
+                    return (
+                      <div key={m.id} style={{background:"rgba(0,0,0,0.2)",borderRadius:8,padding:"10px 12px"}}>
+                        <div style={{fontSize:11,color:T.muted,marginBottom:6}}>{fmtDateShort(pickDate)} · {m.home} v {m.away}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:13,color:currentPick?T.amber:T.muted,minWidth:90}}>{currentPick?`${f(currentPick)} ${currentPick}`:"— no pick"}</span>
+                          <select style={{...inp,flex:1,padding:"6px 8px",fontSize:12}} value={editPicks[eKey]||""} onChange={e=>setEditPicks(prev=>({...prev,[eKey]:e.target.value}))}>
                             <option value="">— change to…</option>
                             {opts.map(t=><option key={t} value={t}>{f(t)} {t}</option>)}
-                            <option value="CLEAR">✕ Clear pick</option>
+                            <option value="CLEAR">✕ Clear</option>
                           </select>
-                          <button style={{...btn("amber"),fontSize:11,padding:"4px 10px"}} onClick={async()=>{const val=editPicks[eKey];if(!val)return;await adminSetPick(p.id,pickDate,m.id,val);setEditPicks(prev=>({...prev,[eKey]:""}));}}>Save</button>
+                          <button style={{...btn("amber"),fontSize:12,padding:"6px 12px"}} onClick={async()=>{const val=editPicks[eKey];if(!val)return;await adminSetPick(selP.id,pickDate,m.id,val);setEditPicks(prev=>({...prev,[eKey]:""}));}}>Save</button>
                         </div>
-                      );
-                    });
-                  })}
-                </div>
+                      </div>
+                    );
+                  });
+                })}
               </div>
-            ))}
+            </div>
+            <div>
+              <div style={{fontSize:11,color:T.muted,marginBottom:10,textTransform:"uppercase",letterSpacing:2}}>Danger zone</div>
+              {!confirmDelete
+                ? <button style={{...btn("danger"),width:"100%"}} onClick={()=>setConfirmDelete(true)}>🗑️ Delete {selP.name}'s account</button>
+                : <div style={{background:"rgba(160,35,35,0.15)",border:"1px solid rgba(200,50,50,0.4)",borderRadius:10,padding:16}}>
+                    <div style={{fontSize:14,fontWeight:700,color:T.red,marginBottom:8}}>Are you sure? This cannot be undone.</div>
+                    <div style={{display:"flex",gap:8}}>
+                      <button style={{...btn("danger"),flex:1}} onClick={()=>deletePlayer(selP.id)}>Yes, delete</button>
+                      <button style={{...btn(),flex:1}} onClick={()=>setConfirmDelete(false)}>Cancel</button>
+                    </div>
+                  </div>
+              }
+            </div>
           </div>
         )}
 
