@@ -544,6 +544,7 @@ export default function App() {
     async function go(){
       const n=name.trim();
       if(!n||n.length<2){setErr("Name must be at least 2 characters.");return;}
+      if(n.length>10){setErr("Name must be 10 characters or less.");return;}
       if(!pw1||pw1.length<3){setErr("Password must be at least 3 characters.");return;}
       if(pw1!==pw2){setErr("Passwords don't match.");return;}
       setBusy(true); const errMsg=await registerPlayer(n,pw1); if(errMsg){setErr(errMsg);setBusy(false);}
@@ -559,7 +560,7 @@ export default function App() {
               <p style={{fontSize:13,color:T.muted,lineHeight:1.6}}>Pick a name and password.</p>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Your name</div><input ref={ref} style={inp} placeholder="e.g. Danny" value={name} onChange={e=>{setName(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
+              <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Your name</div><input ref={ref} style={inp} placeholder="e.g. Danny" maxLength={10} value={name} onChange={e=>{setName(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
               <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Choose a password</div><input style={inp} type="password" placeholder="At least 3 characters" value={pw1} onChange={e=>{setPw1(e.target.value);setErr("");}} /></div>
               <div><div style={{fontSize:12,color:T.muted,marginBottom:5}}>Confirm password</div><input style={inp} type="password" placeholder="Repeat password" value={pw2} onChange={e=>{setPw2(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&go()} /></div>
               {err&&<div style={{color:T.red,fontSize:13}}>{err}</div>}
@@ -766,9 +767,9 @@ export default function App() {
                   return (
                     <tr key={p.id} style={{background:rowBg}}>
                       <td style={{padding:"6px 12px",whiteSpace:"nowrap",position:"sticky",left:0,background:stickyBg,zIndex:1,borderLeft:isMe?`2px solid ${T.amber}`:"none"}}>
-                        <div>
-                          <div style={{color:p.eliminated?"#3a5a40":isMe?T.amber:T.text,fontWeight:700,fontSize:12}}>{p.name}{isMe?" 👤":""}</div>
-                          <div style={{fontSize:10,color:T.muted}}>{p.eliminated?"💀 out":"❤️".repeat(p.lives)}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap"}}>
+                          <div style={{color:p.eliminated?"#3a5a40":isMe?T.amber:T.text,fontWeight:700,fontSize:11,whiteSpace:"nowrap"}}>{p.name}{isMe?" 👤":""}</div>
+                          <div style={{fontSize:9,color:T.muted,whiteSpace:"nowrap"}}>{p.eliminated?"💀":"❤️".repeat(p.lives)}</div>
                         </div>
                       </td>
                       {gridDates.map(d=>{
@@ -922,6 +923,7 @@ export default function App() {
     }
     async function renamePlayer(pid, name) {
       const n=name.trim(); if(!n||n.length<2){toast_("error","Name too short.");return;}
+      if(n.length>10){toast_("error","Name must be 10 characters or less.");return;}
       await supabase.from("players").update({name:n}).eq("id",pid);
       toast_("success","Name updated."); loadAll(false);
     }
