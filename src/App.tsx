@@ -767,9 +767,9 @@ export default function App() {
                   return (
                     <tr key={p.id} style={{background:rowBg}}>
                       <td style={{padding:"6px 12px",whiteSpace:"nowrap",position:"sticky",left:0,background:stickyBg,zIndex:1,borderLeft:isMe?`2px solid ${T.amber}`:"none"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"nowrap"}}>
+                        <div>
                           <div style={{color:p.eliminated?"#3a5a40":isMe?T.amber:T.text,fontWeight:700,fontSize:11,whiteSpace:"nowrap"}}>{p.name}{isMe?" 👤":""}</div>
-                          <div style={{fontSize:9,color:T.muted,whiteSpace:"nowrap"}}>{p.eliminated?"💀":"❤️".repeat(p.lives)}</div>
+                          <div style={{fontSize:9,color:T.muted}}>{p.eliminated?"💀":"❤️".repeat(p.lives)}</div>
                         </div>
                       </td>
                       {gridDates.map(d=>{
