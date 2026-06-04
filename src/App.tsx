@@ -203,43 +203,42 @@ function fmtBST(bst) { if(!bst)return"—"; const[h,m]=bst.split(":").map(Number
 function fmtDate(d) { return new Date(d+"T12:00:00Z").toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"}); }
 function fmtDateShort(d) { return new Date(d+"T12:00:00Z").toLocaleDateString("en-GB",{day:"numeric",month:"short"}); }
 function slotLabel(slot) {
-  if(slot==="FINAL")  return "Final";
-  if(slot==="3RD")    return "3rd Place Play-off";
-  if(slot==="SF-1")   return "Semi-Final 1";
-  if(slot==="SF-2")   return "Semi-Final 2";
-  const qfMap={"QF-1":"Quarter-Final 1","QF-2":"Quarter-Final 2","QF-3":"Quarter-Final 3","QF-4":"Quarter-Final 4"};
-  if(qfMap[slot]) return qfMap[slot];
-  const r16Map={
-    "R16-1":"R16: 1E/3rd vs 1I/3rd",
-    "R16-2":"R16: 2A/2B vs 1F/2C",
-    "R16-3":"R16: 1C/2F vs 2E/2I",
-    "R16-4":"R16: 1A/3rd vs 1L/3rd",
-    "R16-5":"R16: 2K/2L vs 1H/2J",
-    "R16-6":"R16: 1D/3rd vs 1G/3rd",
-    "R16-7":"R16: 1J/2H vs 2D/2G",
-    "R16-8":"R16: 1B/3rd vs 1K/3rd",
+  // Slot label with FIFA match number
+  const labels = {
+    "R32-1":  "M73: 2A vs 2B",
+    "R32-2":  "M74: 1E vs 3rd(ABCDF)",
+    "R32-3":  "M75: 1F vs 2C",
+    "R32-4":  "M76: 1C vs 2F",
+    "R32-5":  "M77: 1I vs 3rd(CDFGH)",
+    "R32-6":  "M78: 2E vs 2I",
+    "R32-7":  "M79: 1A vs 3rd(CEFHI)",
+    "R32-8":  "M80: 1L vs 3rd(EHIJK)",
+    "R32-9":  "M81: 1D vs 3rd(BEFIJ)",
+    "R32-10": "M82: 1G vs 3rd(AEHIJ)",
+    "R32-11": "M83: 2K vs 2L",
+    "R32-12": "M84: 1H vs 2J",
+    "R32-13": "M85: 1B vs 3rd(EFGIJ)",
+    "R32-14": "M86: 1J vs 2H",
+    "R32-15": "M87: 1K vs 3rd(DEIJL)",
+    "R32-16": "M88: 2D vs 2G",
+    "R16-1":  "M89: W(M74) vs W(M77)",
+    "R16-2":  "M90: W(M73) vs W(M75)",
+    "R16-3":  "M91: W(M76) vs W(M78)",
+    "R16-4":  "M92: W(M79) vs W(M80)",
+    "R16-5":  "M93: W(M83) vs W(M84)",
+    "R16-6":  "M94: W(M81) vs W(M82)",
+    "R16-7":  "M95: W(M86) vs W(M88)",
+    "R16-8":  "M96: W(M85) vs W(M87)",
+    "QF-1":   "M97: W(M89) vs W(M90)",
+    "QF-2":   "M98: W(M93) vs W(M94)",
+    "QF-3":   "M99: W(M91) vs W(M92)",
+    "QF-4":   "M100: W(M95) vs W(M96)",
+    "SF-1":   "M101: W(M97) vs W(M98)",
+    "SF-2":   "M102: W(M99) vs W(M100)",
+    "3RD":    "M103: 3rd Place Play-off",
+    "FINAL":  "M104: Final",
   };
-  if(r16Map[slot]) return r16Map[slot];
-  const r32Map={
-    "R32-1":"R32: 2A vs 2B",
-    "R32-2":"R32: 1E vs 3rd(ABCDF)",
-    "R32-3":"R32: 1F vs 2C",
-    "R32-4":"R32: 1C vs 2F",
-    "R32-5":"R32: 1I vs 3rd(CDFGH)",
-    "R32-6":"R32: 2E vs 2I",
-    "R32-7":"R32: 1A vs 3rd(CEFHI)",
-    "R32-8":"R32: 1L vs 3rd(EHIJK)",
-    "R32-9":"R32: 1D vs 3rd(BEFIJ)",
-    "R32-10":"R32: 1G vs 3rd(AEHIJ)",
-    "R32-11":"R32: 2K vs 2L",
-    "R32-12":"R32: 1H vs 2J",
-    "R32-13":"R32: 1B vs 3rd(EFGIJ)",
-    "R32-14":"R32: 1J vs 2H",
-    "R32-15":"R32: 1K vs 3rd(DEIJL)",
-    "R32-16":"R32: 2D vs 2G",
-  };
-  if(r32Map[slot]) return r32Map[slot];
-  return slot;
+  return labels[slot] || slot;
 }
 function avatarBg(name) {
   const c=["#b5341a","#7b34a0","#1e6fb5","#0e8c6e","#b56010","#1e8c40","#2c3e50","#b57a10"];
@@ -1305,10 +1304,64 @@ export default function App() {
   }
 
   function Schedule() {
-    const phases=[["Group Stage","2026-06-11","2026-06-27"],["Round of 32","2026-06-28","2026-07-03"],["Round of 16","2026-07-04","2026-07-07"],["Quarter-Finals","2026-07-08","2026-07-11"],["Semi-Finals","2026-07-12","2026-07-15"],["3rd Place Play-off","2026-07-18","2026-07-18"],["Final","2026-07-19","2026-07-19"]];
+    const phases=[
+      ["Group Stage","2026-06-11","2026-06-27"],
+      ["Round of 32","2026-06-28","2026-07-03"],
+      ["Round of 16","2026-07-04","2026-07-07"],
+      ["Quarter-Finals","2026-07-09","2026-07-11"],
+      ["Semi-Finals","2026-07-14","2026-07-15"],
+      ["3rd Place & Final","2026-07-18","2026-07-19"],
+    ];
+
     return phases.map(([label,from,to])=>{
-      const dates=allPickDates.filter(d=>d>=from&&d<=to); if(!dates.length)return null;
-      return (<div key={label} style={card}><div style={sec}>{label}</div>{dates.map(pickDate=>{const ms=getMatchesForPickDate(pickDate),dlBST=deadlineBSTByPickDate[pickDate];return(<div key={pickDate}><div style={{fontSize:12,color:T.amber,fontWeight:700,margin:"10px 0 6px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>{fmtDate(pickDate)}{dlBST&&<span style={{color:T.muted,fontWeight:400,fontSize:11}}>— picks close {fmtBST(dlBST)} BST</span>}{pickDate===today&&<span style={pill("blue")}>TODAY</span>}</div>{ms.length===0&&<div style={{fontSize:12,color:T.muted,padding:"6px 12px"}}>Fixtures TBD</div>}{ms.map((m,i)=><MatchRow key={i} m={m}/>)}</div>);})}</div>);
+      // For group stage: use activeDates + getMatchesForPickDate as before
+      // For knockout: always show all slots in this phase range
+      const isGroup = label==="Group Stage";
+      const koDates = isGroup ? [] : [...new Set(
+        KNOCKOUT_SLOTS.filter(s=>s.pickDate>=from&&s.pickDate<=to).map(s=>s.pickDate)
+      )].sort();
+      const groupDates = isGroup ? allPickDates.filter(d=>d>=from&&d<=to) : [];
+      const dates = isGroup ? groupDates : koDates;
+      if(!dates.length) return null;
+
+      return (
+        <div key={label} style={card}>
+          <div style={sec}>{label}</div>
+          {dates.map(pickDate=>{
+            const dlBST = deadlineBSTByPickDate[pickDate];
+            const groupMs = isGroup ? getMatchesForPickDate(pickDate) : [];
+            const koSlots = isGroup ? [] : KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate);
+
+            return (
+              <div key={pickDate}>
+                <div style={{fontSize:12,color:T.amber,fontWeight:700,margin:"10px 0 6px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  {fmtDate(pickDate)}
+                  {dlBST&&<span style={{color:T.muted,fontWeight:400,fontSize:11}}>— picks close {fmtBST(dlBST)} BST</span>}
+                  {pickDate===today&&<span style={pill("blue")}>TODAY</span>}
+                </div>
+
+                {/* Group stage matches */}
+                {groupMs.map((m,i)=><MatchRow key={i} m={m}/>)}
+
+                {/* Knockout slots — always show, with teams if known */}
+                {koSlots.map(slot=>{
+                  const fix = koFixtures[slot.id];
+                  const bst = etToBst(slot.kickoffET).bst;
+                  return (
+                    <div key={slot.id} style={{background:"rgba(0,0,0,0.18)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
+                      <div style={{fontSize:11,color:T.amber,fontWeight:700,marginBottom:4}}>{slotLabel(slot.slot)}</div>
+                      {fix
+                        ? <div style={{fontSize:14,fontWeight:700,color:T.text}}>{f(fix.home)} {fix.home} <span style={{color:T.muted,fontWeight:400}}>vs</span> {f(fix.away)} {fix.away} <span style={{fontSize:11,color:T.muted,marginLeft:8}}>{fmtBST(bst)} BST</span></div>
+                        : <div style={{fontSize:12,color:T.muted}}>{fmtBST(bst)} BST · Teams TBD</div>
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      );
     });
   }
 
