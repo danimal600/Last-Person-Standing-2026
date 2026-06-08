@@ -278,6 +278,7 @@ export default function App() {
   const [loading,    setLoading]    = useState(true);
   const [toast,      setToast]      = useState(null);
   const [adminAuthed, setAdminAuthed] = useState(false);
+  const [liveScores,  setLiveScores]  = useState({});
   const toastRef = useRef(null);
 
   const activePlayer = players.find(p=>p.id==activeId)||null;
@@ -721,6 +722,66 @@ export default function App() {
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
+  // ── LIVE SCORES — polls every 60s for in-progress matches ────────────
+  const fetchLiveScores = useCallback(async () => {
+    try {
+      const res = await fetch(
+        "https://api.football-data.org/v4/competitions/WC/matches?status=IN_PLAY,PAUSED,HALFTIME",
+        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+      );
+      if(!res.ok) return;
+      const data = await res.json();
+      const scores = {};
+      (data.matches||[]).forEach(m => {
+        const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
+        const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
+        const key = `${home}|${away}`;
+        scores[key] = {
+          home, away,
+          homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
+          awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
+          minute: m.minute || null,
+          status: m.status, // IN_PLAY, PAUSED, HALFTIME
+        };
+      });
+
+      // Also grab today's FINISHED matches for final scores
+      const resF = await fetch(
+        "https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED",
+        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+      );
+      if(resF.ok) {
+        const dataF = await resF.json();
+        // Only keep today's finished matches
+        const todayET = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(new Date());
+        (dataF.matches||[]).filter(m => m.utcDate?.startsWith(todayET.slice(0,10)) ||
+          new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(m.utcDate))===todayET
+        ).forEach(m => {
+          const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
+          const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
+          const key = `${home}|${away}`;
+          scores[key] = {
+            home, away,
+            homeScore: m.score?.fullTime?.home ?? 0,
+            awayScore: m.score?.fullTime?.away ?? 0,
+            minute: 90,
+            status: "FINISHED",
+          };
+        });
+      }
+
+      setLiveScores(scores);
+    } catch(e) {
+      console.error("Live scores error:", e);
+    }
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
+    fetchLiveScores();
+    const i = setInterval(fetchLiveScores, 60000);
+    return () => clearInterval(i);
+  }, [fetchLiveScores]);
+
   // pickOutcome for grid — check if the player has a pick for this match on this date
   function pickOutcomeForMatch(player, matchId, pickDate) {
     const choice = player.picks[String(matchId)];
@@ -885,14 +946,25 @@ export default function App() {
   const teamBtn=(sel,dis)=>({padding:"11px 8px",borderRadius:9,cursor:dis?"not-allowed":"pointer",border:`1px solid ${sel?T.amber:T.border}`,background:sel?T.amberBg:dis?"rgba(0,0,0,0.12)":T.cardBg,color:dis?"#2a4030":sel?T.amber:T.text,opacity:dis?0.4:1,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"all 0.15s",flex:"1 1 0",minWidth:0});
 
   function MatchRow({m}) {
+    const live = m.home && m.away ? liveScores[`${m.home}|${m.away}`] || liveScores[`${m.away}|${m.home}`] : null;
+    const isLive = live && (live.status==="IN_PLAY"||live.status==="PAUSED"||live.status==="HALFTIME");
+    const isFinished = live && live.status==="FINISHED";
+
     return (
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"rgba(0,0,0,0.22)",borderRadius:8,marginBottom:5,flexWrap:"wrap",gap:6}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinished?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,flexWrap:"wrap",gap:6}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flex:1,flexWrap:"wrap"}}>
           {m.group&&<span style={{...pill("muted"),fontSize:10}}>Grp {m.group}</span>}
           {m.slot&&<span style={{...pill("muted"),fontSize:10}}>{slotLabel(m.slot)}</span>}
-          <span style={{fontSize:13}}>{m.home?`${f(m.home)} ${m.home}`:"TBD"} <span style={{color:T.muted}}>vs</span> {m.away?`${f(m.away)} ${m.away}`:"TBD"}</span>
+          {isLive&&<span style={{background:"rgba(220,30,30,0.9)",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:1}}>🔴 LIVE {live.minute?live.minute+"'":""}</span>}
+          {isFinished&&<span style={{...pill("muted"),fontSize:9}}>FT</span>}
+          <span style={{fontSize:13}}>
+            {m.home?`${f(m.home)} ${m.home}`:"TBD"}
+            {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 6px"}}>{live.homeScore} – {live.awayScore}</span>}
+            {!(isLive||isFinished)&&<span style={{color:T.muted}}> vs </span>}
+            {m.away?`${f(m.away)} ${m.away}`:"TBD"}
+          </span>
         </div>
-        <span style={{fontSize:12,color:T.muted}}>{fmtBST(m.kickoffBST)} BST</span>
+        <span style={{fontSize:12,color:isLive?T.red:T.muted}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinished?"Full time":fmtBST(m.kickoffBST)+" BST"}</span>
       </div>
     );
   }
@@ -1001,12 +1073,76 @@ export default function App() {
     const groupDatesUpcoming=upcomingDates.filter(d=>phaseOf(d)==="GROUP");
     const koDatesUpcoming=upcomingDates.filter(d=>phaseOf(d)!=="GROUP");
 
+    // ── Deadline countdown timer ──────────────────────────────────────
+    const [now, setNow] = useState(()=>new Date());
+    useEffect(()=>{ const i=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(i); },[]);
+
+    // Find next deadline datetime (in BST/London time via ET offset)
+    function getNextDeadlineInfo() {
+      for(const pickDate of activeDates) {
+        const dlBST = deadlineBSTByPickDate[pickDate];
+        if(!dlBST) continue;
+        // Convert deadline to a JS Date (ET = BST - 5hrs)
+        const [h,m] = dlBST.split(":").map(Number);
+        const etH = h >= 5 ? h - 5 : h + 19;
+        const dl = new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
+        // Treat as ET (UTC-4 in summer)
+        const dlUTC = new Date(dl.getTime() + 4*60*60*1000);
+        if(dlUTC > now) {
+          return { pickDate, dlBST, dlUTC, locked: false };
+        }
+      }
+      return null;
+    }
+
+    function fmtCountdown(ms) {
+      if(ms<=0) return "0s";
+      const h=Math.floor(ms/3600000);
+      const m=Math.floor((ms%3600000)/60000);
+      const s=Math.floor((ms%60000)/1000);
+      if(h>0) return `${h}h ${m}m`;
+      if(m>0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    const nextDl = getNextDeadlineInfo();
+    const todayPick = getDayPick(p, today);
+    const todayLocked = isLocked(today);
+
+    // Midnight ET in UTC
+    const midnightET = new Date();
+    midnightET.setUTCHours(4,0,0,0); // midnight ET = 04:00 UTC
+    if(midnightET < now) midnightET.setUTCDate(midnightET.getUTCDate()+1);
+    const afterMidnight = now >= midnightET;
+
+    let timerText = "";
+    let timerColor = T.amber;
+    let timerIcon = "⏱";
+
+    if(nextDl) {
+      const ms = nextDl.dlUTC - now;
+      const isToday = nextDl.pickDate === today;
+      if(isToday && todayLocked) {
+        // Deadline passed today — show "closed" until midnight, then countdown to next
+        timerIcon = "🔒"; timerColor = T.muted;
+        timerText = "Picks closed for today";
+      } else {
+        timerColor = todayPick ? T.green : T.amber;
+        timerIcon = todayPick ? "✅" : "⏱";
+        timerText = (todayPick ? "Pick made · " : "") + fmtCountdown(ms) + " until deadline";
+      }
+    } else {
+      timerIcon = "🏁"; timerColor = T.muted;
+      timerText = "Group stage complete";
+    }
+
     return (
       <>
         <div style={{...card,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <div style={{flex:1}}>
             <div style={{fontSize:17,fontWeight:800}}>{p.name}</div>
             <div style={{fontSize:12,color:T.muted}}>{"❤️".repeat(p.lives)} {p.lives} live{p.lives!==1?"s":""} remaining</div>
+            <div style={{fontSize:13,fontWeight:700,color:timerColor,marginTop:6}}>{timerIcon} {timerText}</div>
           </div>
         </div>
 
@@ -1347,13 +1483,13 @@ export default function App() {
                 {koSlots.map(slot=>{
                   const fix = koFixtures[slot.id];
                   const bst = etToBst(slot.kickoffET).bst;
+                  if(fix) {
+                    return <MatchRow key={slot.id} m={{...slot,...fix,kickoffBST:bst,isKnockout:true}}/>;
+                  }
                   return (
                     <div key={slot.id} style={{background:"rgba(0,0,0,0.18)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
                       <div style={{fontSize:11,color:T.amber,fontWeight:700,marginBottom:4}}>{slotLabel(slot.slot)}</div>
-                      {fix
-                        ? <div style={{fontSize:14,fontWeight:700,color:T.text}}>{f(fix.home)} {fix.home} <span style={{color:T.muted,fontWeight:400}}>vs</span> {f(fix.away)} {fix.away} <span style={{fontSize:11,color:T.muted,marginLeft:8}}>{fmtBST(bst)} BST</span></div>
-                        : <div style={{fontSize:12,color:T.muted}}>{fmtBST(bst)} BST · Teams TBD</div>
-                      }
+                      <div style={{fontSize:12,color:T.muted}}>{fmtBST(bst)} BST · Teams TBD</div>
                     </div>
                   );
                 })}
@@ -1593,7 +1729,6 @@ export default function App() {
             <button style={navBtn(screen==="grid")} onClick={()=>setScreen("grid")}>📊 Grid</button>
             <button style={navBtn(screen==="schedule")} onClick={()=>setScreen("schedule")}>📅 Schedule</button>
             <button style={navBtn(screen==="rules")} onClick={()=>setScreen("rules")}>📖 Rules</button>
-            <button style={navBtn(screen==="admin")} onClick={()=>setScreen("admin")}>👑 Admin</button>
             <button style={{...btn("amber"),fontSize:13,padding:"7px 13px"}} onClick={()=>setScreen("profile")}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</button>
           </nav>
         </header>
@@ -1607,6 +1742,11 @@ export default function App() {
         {screen==="rules"    &&<RulesView/>}
         {screen==="admin"    &&<Admin/>}
       </main>
+      {isNav&&(
+        <footer style={{textAlign:"center",padding:"24px 0 32px",borderTop:`1px solid rgba(255,255,255,0.05)`,marginTop:8}}>
+          <button style={{background:"none",border:"none",color:T.muted,fontSize:11,cursor:"pointer",opacity:0.5}} onClick={()=>setScreen("admin")}>👑 Admin</button>
+        </footer>
+      )}
       {toast&&<div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:toast.type==="error"?"rgba(160,35,35,0.97)":toast.type==="success"?"rgba(20,120,55,0.97)":"rgba(20,70,140,0.97)",color:"#fff",padding:"11px 24px",borderRadius:30,fontSize:14,fontWeight:600,boxShadow:"0 4px 28px rgba(0,0,0,0.6)",zIndex:999,whiteSpace:"nowrap",animation:"slideUp 0.2s ease"}}>{toast.msg}</div>}
     </div>
   );
