@@ -269,6 +269,52 @@ const T = {
 };
 const ADMIN_PW = "worldcup2026";
 
+
+// ── NavTimer — top-level component, isolated from App re-renders ─────────
+function NavTimer({ activeDates, deadlineBSTByPickDate, activePlayer, today, isLocked, getDayPick, setScreen }) {
+  const [now, setNow] = useState(()=>new Date());
+  useEffect(()=>{ const i=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(i); },[]);
+
+  const tournamentStart = new Date("2026-06-11T19:00:00Z");
+  let label, text, color, icon, locked=false, hasPick=false;
+
+  if(now < tournamentStart) {
+    const ms = tournamentStart - now;
+    const d=Math.floor(ms/86400000),h=Math.floor((ms%86400000)/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000);
+    text = d>0?`${d}d ${h}h ${m}m ${s}s`:h>0?`${h}h ${m}m ${s}s`:`${m}m ${s}s`;
+    label="GAME BEGINS"; color=T.amber; icon="🏆";
+  } else {
+    let found = false;
+    for(const pickDate of activeDates) {
+      const dlBST = deadlineBSTByPickDate[pickDate]; if(!dlBST) continue;
+      const [hh,mm] = dlBST.split(":").map(Number);
+      const etH = hh>=5?hh-5:hh+19;
+      const dlUTC = new Date(new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(mm).padStart(2,"0")}:00`).getTime()+4*3600000);
+      if(dlUTC > now) {
+        const ms=dlUTC-now,d=Math.floor(ms/86400000),h=Math.floor((ms%86400000)/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000);
+        text = d>0?`${d}d ${h}h ${m}m ${s}s`:h>0?`${h}h ${m}m ${s}s`:`${m}m ${s}s`;
+        hasPick = activePlayer ? !!getDayPick(activePlayer,pickDate) : false;
+        const isLockedToday = isLocked(pickDate) && pickDate===today;
+        if(isLockedToday) {
+          const midnightUTC = new Date(`${pickDate}T04:00:00Z`);
+          if(now < midnightUTC) { label="PICKS CLOSED"; text="reopens midnight"; color=T.muted; icon="🔒"; locked=true; found=true; break; }
+        }
+        label=hasPick?"PICK MADE":"NEXT DEADLINE"; color=hasPick?T.green:T.amber; icon=hasPick?"✅":"⏱";
+        found=true; break;
+      }
+    }
+    if(!found){ return null; }
+  }
+
+  if(!text) return null;
+  return (
+    <div onClick={()=>!locked&&setScreen("pick")} style={{borderTop:`1px solid rgba(255,255,255,0.06)`,padding:"7px 18px",background:locked?"rgba(255,255,255,0.02)":hasPick?"rgba(0,132,61,0.10)":"rgba(255,215,0,0.07)",display:"flex",alignItems:"center",justifyContent:"center",gap:12,cursor:locked?"default":"pointer"}}>
+      <span style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color,opacity:0.85}}>{icon} {label}</span>
+      <span style={{fontSize:19,fontWeight:900,color,letterSpacing:-0.5,fontFamily:"monospace"}}>{text}</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [players,    setPlayers]    = useState([]);
   const [screen,     setScreen]     = useState("profile");
@@ -279,7 +325,6 @@ export default function App() {
   const [toast,       setToast]       = useState(null);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [liveScores,  setLiveScores]  = useState({});
-  const [navNow,      setNavNow]      = useState(()=>new Date());
   const [howardsResult, setHowardsResult] = useState(null);
   const toastRef = useRef(null);
 
@@ -331,7 +376,6 @@ export default function App() {
   useEffect(() => { loadAll(true); }, [loadAll]);
   useEffect(() => { const i=setInterval(()=>loadAll(false),30000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
-  useEffect(() => { const i=setInterval(()=>setNavNow(new Date()),1000); return()=>clearInterval(i); }, []);
 
   // ── AUTO RESULTS — polls football-data.org every 5 mins ──────────────
   const FDORG_TOKEN = "73804200936a4d86acaed8a91a7801ad";
@@ -1142,13 +1186,6 @@ export default function App() {
 
     return (
       <>
-        <div style={{...card,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:17,fontWeight:800}}>{p.name}</div>
-            <div style={{fontSize:12,color:T.muted}}>{"❤️".repeat(p.lives)} {p.lives} live{p.lives!==1?"s":""} remaining</div>
-            <div style={{fontSize:13,fontWeight:700,color:timerColor,marginTop:6}}>{timerIcon} {timerText}</div>
-          </div>
-        </div>
 
         {groupDatesUpcoming.length>0&&(
           <div style={card}>
@@ -1803,65 +1840,6 @@ export default function App() {
 
   const isNav=["pick","grid","schedule","rules","admin"].includes(screen);
 
-  function getNavTimer() {
-    const tournamentStart = new Date("2026-06-11T19:00:00Z"); // 15:00 ET = 19:00 UTC
-    const now = navNow;
-
-    // Before tournament starts
-    if(now < tournamentStart) {
-      const ms = tournamentStart - now;
-      const days = Math.floor(ms/86400000);
-      const hrs = Math.floor((ms%86400000)/3600000);
-      const mins = Math.floor((ms%3600000)/60000);
-      const secs = Math.floor((ms%60000)/1000);
-      let text = days>0 ? `${days}d ${hrs}h ${mins}m ${secs}s` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
-      return { label:"GAME BEGINS", text, color:T.amber, icon:"🏆", hasPick:false, locked:false };
-    }
-
-    // Find next deadline
-    for(const pickDate of activeDates) {
-      const dlBST = deadlineBSTByPickDate[pickDate];
-      if(!dlBST) continue;
-      const [h,m] = dlBST.split(":").map(Number);
-      const etH = h >= 5 ? h - 5 : h + 19;
-      const dlUTC = new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
-      const adjusted = new Date(dlUTC.getTime() + 4*60*60*1000);
-
-      if(adjusted > now) {
-        const ms = adjusted - now;
-        const days = Math.floor(ms/86400000);
-        const hrs = Math.floor((ms%86400000)/3600000);
-        const mins = Math.floor((ms%3600000)/60000);
-        const secs = Math.floor((ms%60000)/1000);
-        let text = days>0 ? `${days}d ${hrs}h ${mins}m ${secs}s` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
-        const hasPick = activePlayer ? !!getDayPick(activePlayer, pickDate) : false;
-        const locked = isLocked(pickDate) && pickDate===today;
-
-        if(locked) {
-          // Deadline passed today — before midnight
-          // Find midnight ET
-          const midnightUTC = new Date(`${pickDate}T04:00:00Z`); // midnight ET = 04:00 UTC
-          if(now < midnightUTC) {
-            return { label:"PICKS CLOSED", text:"picks reopen at midnight", color:T.muted, icon:"🔒", hasPick, locked:true };
-          }
-        }
-
-        return {
-          label: hasPick ? "PICK MADE" : "NEXT DEADLINE",
-          text,
-          color: hasPick ? T.green : T.amber,
-          icon: hasPick ? "✅" : "⏱",
-          hasPick,
-          locked: false,
-        };
-      }
-    }
-
-    return { label:"FINISHED", text:"", color:T.muted, icon:"🏁", hasPick:false, locked:false };
-  }
-
-  const navTimer = getNavTimer();
-
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}select option{background:#0d2016}button:hover:not(:disabled){filter:brightness(1.1)}`}</style>
@@ -1877,8 +1855,10 @@ export default function App() {
               </div>
             </button>
             <button onClick={()=>setScreen("profile")} style={{display:"flex",alignItems:"center",gap:8,background:T.amberBg,border:`1px solid ${T.amberBorder}`,borderRadius:10,padding:"7px 13px",cursor:"pointer",flexShrink:0}}>
-              <span style={{fontSize:13,fontWeight:800,color:T.amber}}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</span>
-              {activePlayer&&<span style={{fontSize:11,color:T.muted,marginLeft:4}}>{"❤️".repeat(activePlayer.lives)}</span>}
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:13,fontWeight:800,color:T.amber,lineHeight:1.2}}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</div>
+                {activePlayer&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{"❤️".repeat(activePlayer.lives)}</div>}
+              </div>
             </button>
           </div>
           {/* Row 2: Nav tabs */}
@@ -1889,13 +1869,8 @@ export default function App() {
               </button>
             ))}
           </div>
-          {/* Row 3: Timer full width */}
-          {navTimer&&(
-            <div onClick={()=>!navTimer.locked&&setScreen("pick")} style={{borderTop:`1px solid rgba(255,255,255,0.06)`,padding:"7px 18px",background:navTimer.locked?"rgba(255,255,255,0.02)":navTimer.hasPick?"rgba(0,132,61,0.10)":"rgba(255,215,0,0.07)",display:"flex",alignItems:"center",justifyContent:"center",gap:12,cursor:navTimer.locked?"default":"pointer"}}>
-              <span style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:navTimer.color,opacity:0.85}}>{navTimer.icon} {navTimer.label}</span>
-              <span style={{fontSize:19,fontWeight:900,color:navTimer.color,letterSpacing:-0.5,fontFamily:"monospace"}}>{navTimer.text}</span>
-            </div>
-          )}
+          {/* Row 3: Timer — isolated component, won't re-render parent */}
+          <NavTimer activeDates={activeDates} deadlineBSTByPickDate={deadlineBSTByPickDate} activePlayer={activePlayer} today={today} isLocked={isLocked} getDayPick={getDayPick} setScreen={setScreen} />
         </header>
       )}
       <main style={{maxWidth:isNav?940:"none",margin:"0 auto",padding:isNav?"18px 14px":0}}>
@@ -1913,8 +1888,8 @@ export default function App() {
         </footer>
       )}
       {howardsResult&&(
-        <div onClick={()=>setHowardsResult(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:340}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:340}}>
             <div style={{fontSize:18,fontWeight:800,color:T.amber,marginBottom:4}}>⚡ Howard's Law Applied</div>
             <div style={{fontSize:12,color:T.muted,marginBottom:16}}>{fmtDate(howardsResult.pickDate)}</div>
             <div style={{fontSize:13,color:T.text,marginBottom:16}}>
