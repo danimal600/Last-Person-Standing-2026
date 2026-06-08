@@ -1491,14 +1491,14 @@ export default function App() {
       <div>
         <div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
           <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — The Ray Gunn Cup</p></div>
-          {rules.map(([icon,title,desc,link,btn_])=>(
+          {rules.map(([icon,title,desc,link,extraBtn])=>(
             <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
               <div style={{fontSize:22,flexShrink:0,width:32,textAlign:"center",paddingTop:2}}>{icon}</div>
               <div style={{flex:1}}>
                 <div style={{fontWeight:700,fontSize:14,color:T.amber,marginBottom:4}}>{title}</div>
                 <div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div>
                 {link&&<a href={link} target="_blank" rel="noreferrer" style={{display:"inline-block",marginTop:8,fontSize:13,color:T.amber,fontWeight:700,textDecoration:"underline"}}>💳 Pay £10 entry fee →</a>}
-                {btn_==="rankings"&&<button onClick={()=>setShowRankings(true)} style={{display:"inline-block",marginTop:8,fontSize:12,color:T.amber,fontWeight:700,background:"rgba(255,215,0,0.1)",border:`1px solid ${T.amberBorder}`,borderRadius:8,padding:"5px 12px",cursor:"pointer"}}>🌍 View FIFA Rankings →</button>}
+                {extraBtn==="rankings"&&<button onClick={()=>setShowRankings(true)} style={{display:"inline-block",marginTop:8,fontSize:12,color:T.amber,fontWeight:700,background:"rgba(255,215,0,0.1)",border:`1px solid ${T.amberBorder}`,borderRadius:8,padding:"5px 12px",cursor:"pointer"}}>🌍 View FIFA Rankings →</button>}
               </div>
             </div>
           ))}
