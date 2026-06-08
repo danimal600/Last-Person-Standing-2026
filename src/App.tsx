@@ -279,6 +279,7 @@ export default function App() {
   const [toast,      setToast]      = useState(null);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [liveScores,  setLiveScores]  = useState({});
+  const [navNow,      setNavNow]      = useState(()=>new Date());
   const toastRef = useRef(null);
 
   const activePlayer = players.find(p=>p.id==activeId)||null;
@@ -329,6 +330,7 @@ export default function App() {
   useEffect(() => { loadAll(true); }, [loadAll]);
   useEffect(() => { const i=setInterval(()=>loadAll(false),30000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
+  useEffect(() => { const i=setInterval(()=>setNavNow(new Date()),1000); return()=>clearInterval(i); }, []);
 
   // ── AUTO RESULTS — polls football-data.org every 5 mins ──────────────
   const FDORG_TOKEN = "73804200936a4d86acaed8a91a7801ad";
@@ -1799,10 +1801,6 @@ export default function App() {
   }
 
   const isNav=["pick","grid","schedule","rules","admin"].includes(screen);
-
-  // Nav timer
-  const [navNow, setNavNow] = useState(()=>new Date());
-  useEffect(()=>{ const i=setInterval(()=>setNavNow(new Date()),1000); return()=>clearInterval(i); },[]);
 
   function getNavTimer() {
     for(const pickDate of activeDates) {
