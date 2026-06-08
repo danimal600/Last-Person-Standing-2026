@@ -131,14 +131,14 @@ const FLAGS = {
   "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷","Czechia":"🇨🇿",
   "Canada":"🇨🇦","Bosnia & Herz.":"🇧🇦","USA":"🇺🇸","Paraguay":"🇵🇾",
   "Qatar":"🇶🇦","Switzerland":"🇨🇭","Brazil":"🇧🇷","Morocco":"🇲🇦",
-  "Haiti":"🇭🇹","Scotland":"🏴","Australia":"🇦🇺","Turkiye":"🇹🇷",
+  "Haiti":"🇭🇹","Scotland":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Australia":"🇦🇺","Turkiye":"🇹🇷",
   "Germany":"🇩🇪","Curacao":"🇨🇼","Netherlands":"🇳🇱","Japan":"🇯🇵",
   "Ivory Coast":"🇨🇮","Ecuador":"🇪🇨","Sweden":"🇸🇪","Tunisia":"🇹🇳",
   "Spain":"🇪🇸","Cape Verde":"🇨🇻","Belgium":"🇧🇪","Egypt":"🇪🇬",
   "Saudi Arabia":"🇸🇦","Uruguay":"🇺🇾","Iran":"🇮🇷","New Zealand":"🇳🇿",
   "France":"🇫🇷","Senegal":"🇸🇳","Iraq":"🇮🇶","Norway":"🇳🇴",
   "Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴",
-  "Portugal":"🇵🇹","DR Congo":"🇨🇩","England":"🏴","Croatia":"🇭🇷",
+  "Portugal":"🇵🇹","DR Congo":"🇨🇩","England":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Croatia":"🇭🇷",
   "Ghana":"🇬🇭","Panama":"🇵🇦","Uzbekistan":"🇺🇿","Colombia":"🇨🇴","Draw":"⚖️",
 };
 const f = t => FLAGS[t] || "🏳️";
@@ -998,20 +998,20 @@ export default function App() {
     const isFinished = live && live.status==="FINISHED";
 
     return (
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinished?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,flexWrap:"wrap",gap:6}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,flex:1,flexWrap:"wrap"}}>
-          {m.group&&<span style={{...pill("muted"),fontSize:10}}>Grp {m.group}</span>}
-          {m.slot&&<span style={{...pill("muted"),fontSize:10}}>{slotLabel(m.slot)}</span>}
-          {isLive&&<span style={{background:"rgba(220,30,30,0.9)",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:1}}>🔴 LIVE {live.minute?live.minute+"'":""}</span>}
-          {isFinished&&<span style={{...pill("muted"),fontSize:9}}>FT</span>}
-          <span style={{fontSize:13}}>
-            {m.home?`${f(m.home)} ${m.home}`:"TBD"}
-            {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 6px"}}>{live.homeScore} – {live.awayScore}</span>}
-            {!(isLive||isFinished)&&<span style={{color:T.muted}}> vs </span>}
-            {m.away?`${f(m.away)} ${m.away}`:"TBD"}
-          </span>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinished?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,gap:8,flexWrap:"nowrap"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+          {m.group&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>Grp {m.group}</span>}
+          {m.slot&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>{slotLabel(m.slot)}</span>}
+          {isLive&&<span style={{background:"rgba(220,30,30,0.9)",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:1,flexShrink:0}}>🔴 {live.minute?live.minute+"'":"LIVE"}</span>}
+          {isFinished&&<span style={{...pill("muted"),fontSize:9,flexShrink:0}}>FT</span>}
         </div>
-        <span style={{fontSize:12,color:isLive?T.red:T.muted}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinished?"Full time":fmtBST(m.kickoffBST)+" BST"}</span>
+        <div style={{flex:1,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>
+          {m.home?`${f(m.home)} ${m.home}`:"TBD"}
+          {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{live.homeScore}–{live.awayScore}</span>}
+          {!(isLive||isFinished)&&<span style={{color:T.muted}}> vs </span>}
+          {m.away?`${f(m.away)} ${m.away}`:"TBD"}
+        </div>
+        <span style={{fontSize:11,color:isLive?T.red:T.muted,flexShrink:0,marginLeft:4}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinished?"FT":fmtBST(m.kickoffBST)+" BST"}</span>
       </div>
     );
   }
@@ -1466,7 +1466,7 @@ export default function App() {
     {rank:1,  team:"France",           flag:"🇫🇷"},
     {rank:2,  team:"Spain",            flag:"🇪🇸"},
     {rank:3,  team:"Argentina",        flag:"🇦🇷"},
-    {rank:4,  team:"England",          flag:"🏴"},
+    {rank:4,  team:"England",          flag:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
     {rank:5,  team:"Portugal",         flag:"🇵🇹"},
     {rank:6,  team:"Brazil",           flag:"🇧🇷"},
     {rank:7,  team:"Netherlands",      flag:"🇳🇱"},
@@ -1496,7 +1496,7 @@ export default function App() {
     {rank:41, team:"Czechia",          flag:"🇨🇿"},
     {rank:42, team:"Turkiye",          flag:"🇹🇷"},
     {rank:44, team:"Norway",           flag:"🇳🇴"},
-    {rank:47, team:"Scotland",         flag:"🏴"},
+    {rank:47, team:"Scotland",         flag:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
     {rank:51, team:"DR Congo",         flag:"🇨🇩"},
     {rank:52, team:"Bosnia & Herz.",   flag:"🇧🇦"},
     {rank:53, team:"Panama",           flag:"🇵🇦"},
@@ -1555,8 +1555,7 @@ export default function App() {
                 <div key={t.team} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontSize:11,color:T.muted,width:20,textAlign:"right",flexShrink:0}}>#{t.rank}</div>
                   <div style={{fontSize:18,flexShrink:0}}>{t.flag}</div>
-                  <div style={{fontSize:13,fontWeight:600,color:i>=40?T.red:T.text}}>{t.team}</div>
-                  {i>=40&&<div style={{fontSize:10,color:T.red,marginLeft:"auto"}}>⚠️ danger zone</div>}
+                  <div style={{fontSize:13,fontWeight:600,color:T.text}}>{t.team}</div>
                 </div>
               ))}
               <div style={{fontSize:11,color:T.muted,margin:"12px 0 4px"}}>Source: Official FIFA World Ranking, April 1 2026</div>
