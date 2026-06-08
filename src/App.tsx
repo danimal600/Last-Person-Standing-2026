@@ -1068,14 +1068,15 @@ export default function App() {
 
   function PickScreen() {
     const p=activePlayer;
+
+    // ── Hooks must be called before any early return ──────────────────
+    const [now, setNow] = useState(()=>new Date());
+    useEffect(()=>{ const i=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(i); },[]);
+
     if(!p) return <div style={card}><p style={{color:T.muted,marginBottom:12}}>Not signed in.</p><button style={btn()} onClick={()=>setScreen("profile")}>← Choose profile</button></div>;
     const upcomingDates=activeDates.filter(d=>d>=today);
     const groupDatesUpcoming=upcomingDates.filter(d=>phaseOf(d)==="GROUP");
     const koDatesUpcoming=upcomingDates.filter(d=>phaseOf(d)!=="GROUP");
-
-    // ── Deadline countdown timer ──────────────────────────────────────
-    const [now, setNow] = useState(()=>new Date());
-    useEffect(()=>{ const i=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(i); },[]);
 
     // Find next deadline datetime (in BST/London time via ET offset)
     function getNextDeadlineInfo() {
