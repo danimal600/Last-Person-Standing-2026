@@ -326,6 +326,8 @@ export default function App() {
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [liveScores,  setLiveScores]  = useState({});
   const [howardsResult, setHowardsResult] = useState(null);
+  const [popupSlides, setPopupSlides] = useState(null); // { slides:[{icon,title,body}], key }
+  const [popupIdx, setPopupIdx] = useState(0);
   const toastRef = useRef(null);
 
   const activePlayer = players.find(p=>p.id==activeId)||null;
@@ -377,8 +379,226 @@ export default function App() {
   useEffect(() => { const i=setInterval(()=>loadAll(false),30000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
 
-  // ── AUTO RESULTS — polls football-data.org every 5 mins ──────────────
+  // ── POPUP ENGINE ─────────────────────────────────────────────────────────
   const FDORG_TOKEN = "73804200936a4d86acaed8a91a7801ad";
+
+  function seenKey(k) { return `lps_seen_${k}`; }
+  function markSeen(k) { try { localStorage.setItem(seenKey(k),"1"); } catch {} }
+  function hasSeen(k) { try { return !!localStorage.getItem(seenKey(k)); } catch { return false; } }
+
+  function showPopup(slides, key) {
+    if(hasSeen(key)) return;
+    markSeen(key);
+    setPopupIdx(0);
+    setPopupSlides({ slides, key });
+  }
+
+  async function generateSlides(prompt) {
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          messages:[{ role:"user", content: prompt }]
+        })
+      });
+      const data = await res.json();
+      const raw = data.content?.[0]?.text||"[]";
+      const clean = raw.replace(/```json|```/g,"").trim();
+      return JSON.parse(clean);
+    } catch(e) {
+      console.error("Popup generation error:",e);
+      return null;
+    }
+  }
+
+  // Check which popups to show
+  const checkPopups = useCallback(async () => {
+    if(!activeId) return;
+    const now = new Date();
+    const tournamentStart = new Date("2026-06-11T19:00:00Z");
+    const pot = players.length * 10;
+    const playerCount = players.length;
+    const stillIn = players.filter(p=>!p.eliminated).length;
+
+    // ── SET 1: Hype countdowns ──────────────────────────────────────────
+    const msToStart = tournamentStart - now;
+    const daysToStart = msToStart / 86400000;
+
+    if(daysToStart > 0) {
+      let hypeKey = null;
+      if(daysToStart <= 1 && daysToStart > 0)       hypeKey = "hype_1d";
+      else if(daysToStart <= 2 && daysToStart > 1)  hypeKey = "hype_2d";
+      else if(daysToStart <= 3 && daysToStart > 2)  hypeKey = "hype_3d";
+      else if(daysToStart <= 7 && daysToStart > 6)  hypeKey = "hype_7d";
+
+      if(hypeKey && !hasSeen(hypeKey)) {
+        const dLabel = hypeKey==="hype_1d"?"1 DAY":hypeKey==="hype_2d"?"2 DAYS":hypeKey==="hype_3d"?"3 DAYS":"7 DAYS";
+        const slides = await generateSlides(
+          `You are the brutally funny, excited host of a World Cup prediction game called "The Ray Gunn Cup — Last Person Standing 2026". 
+          Generate exactly 3 hype slides for a countdown popup showing ${dLabel} until the tournament starts.
+          Facts: ${playerCount} players, £${pot} pot, game starts June 11th 2026.
+          Be genuinely exciting and funny. Short punchy sentences. Australian flavour (the colour scheme is green and gold). 
+          Each slide has an icon (single emoji), title (4-6 words, ALL CAPS), and body (2-4 sentences, funny and punchy).
+          Respond ONLY with a valid JSON array, no markdown, no preamble:
+          [{"icon":"🏆","title":"TITLE HERE","body":"Body text here."},...]`
+        );
+        if(slides) showPopup(slides, hypeKey);
+        return;
+      }
+    }
+
+    // ── Matchday hype (day of first game, before deadline) ──────────────
+    if(today === "2026-06-11" && !hasSeen("hype_matchday")) {
+      const todayMatches = matchesByPickDate["2026-06-11"]||[];
+      const slides = await generateSlides(
+        `You are the brutally funny host of "The Ray Gunn Cup — Last Person Standing 2026".
+        TODAY IS MATCHDAY 1. The World Cup starts TODAY.
+        Facts: ${playerCount} players, £${pot} pot, ${todayMatches.length} games to pick from today, deadline 8:00pm BST.
+        Generate exactly 3 hype/warning slides. Be electric. Mention how many games there are to pick from (${todayMatches.length}) without naming specific teams.
+        Mention the deadline. Mention Howard's Law as a threat to those who don't pick.
+        Each slide: icon (emoji), title (ALL CAPS, 4-6 words), body (2-4 punchy funny sentences).
+        Respond ONLY with valid JSON array, no markdown:
+        [{"icon":"🚨","title":"TITLE","body":"body"},...]`
+      );
+      if(slides) showPopup(slides, "hype_matchday");
+      return;
+    }
+
+    // ── SET 2: Post-deadline report ──────────────────────────────────────
+    for(const pickDate of [...allPickDates].reverse()) {
+      if(pickDate > today) continue;
+      if(!isLocked(pickDate)) continue;
+      const dlKey = `deadline_${pickDate}_${activeId}`;
+      if(hasSeen(dlKey)) continue;
+
+      const dayMatches = getMatchesForPickDate(pickDate);
+      if(!dayMatches.length) continue;
+
+      // Build picks data
+      const activePlayers = players.filter(p=>!p.eliminated);
+      const pickCounts = {};
+      const unpicked = [];
+      activePlayers.forEach(p=>{
+        const dp = getDayPick(p, pickDate);
+        if(dp) { pickCounts[dp.choice]=(pickCounts[dp.choice]||0)+1; }
+        else unpicked.push(p.name);
+      });
+
+      const sorted = Object.entries(pickCounts).sort((a,b)=>b[1]-a[1]);
+      const topPick = sorted[0];
+      const bottomPick = sorted[sorted.length-1];
+      const maverick = bottomPick && bottomPick[1]===1 ? players.find(p=>getDayPick(p,pickDate)?.choice===bottomPick[0]) : null;
+
+      const onThinIce = players.filter(p=>!p.eliminated&&p.lives<=2).map(p=>p.name);
+
+      const slides = await generateSlides(
+        `You are the brutally funny host of "The Ray Gunn Cup — Last Person Standing 2026".
+        The deadline has just passed for ${fmtDate(pickDate)}. Results not yet known.
+        
+        Pick data:
+        - Most popular pick: ${topPick?`${topPick[0]} (${topPick[1]} players)`:"none yet"}
+        - All picks: ${sorted.map(([t,c])=>`${t}: ${c}`).join(", ")||"none"}
+        - Players who missed deadline (Howard's Law victims): ${unpicked.length>0?unpicked.join(", "):"nobody — legend behaviour"}
+        - Players on thin ice (2 lives or fewer): ${onThinIce.length>0?onThinIce.join(", "):"none yet"}
+        - ${playerCount} total players, £${pot} pot, ${stillIn} still alive
+        - Number of games today: ${dayMatches.length}
+
+        Generate exactly 4 slides. Be brutal, funny, specific with names. 
+        Slide 1: picks summary and bandwagon callout.
+        Slide 2: maverick callout OR Howard's Law victims (${unpicked.length>0?"Howard's Law fired today":"everyone picked, surprisingly"}).
+        Slide 3: thin ice warning if relevant, otherwise general banter about the day ahead.
+        Slide 4: dramatic sign-off building tension before results.
+        
+        Each slide: icon (emoji), title (ALL CAPS, 4-6 words), body (2-4 punchy sentences using real player names).
+        Respond ONLY with valid JSON array, no markdown:
+        [{"icon":"⚽","title":"TITLE","body":"body"},...]`
+      );
+      if(slides) showPopup(slides, dlKey);
+      return;
+    }
+
+    // ── SET 3: Post-results report ───────────────────────────────────────
+    for(const pickDate of [...allPickDates].reverse()) {
+      if(pickDate > today) continue;
+      const resKey = `results_${pickDate}_${activeId}`;
+      if(hasSeen(resKey)) continue;
+
+      const dayMatches = getMatchesForPickDate(pickDate);
+      if(!dayMatches.length) continue;
+
+      // Check if all matches for this day have results
+      const allResultsIn = dayMatches.every(m => {
+        return results[`${pickDate}|${m.home}`] || results[`${pickDate}|${m.away}`];
+      });
+      if(!allResultsIn) continue;
+
+      // Build results data
+      const activePlayers = players.filter(p=>!p.eliminated);
+      const winners = [], losers = [], eliminated = [];
+
+      // Check previous lives (need to infer from current state)
+      players.forEach(p=>{
+        const dp = getDayPick(p, pickDate);
+        if(!dp) return;
+        const outcome = pickOutcomeForDay(p, pickDate);
+        if(outcome==="correct") winners.push(p.name);
+        else if(outcome==="wrong") {
+          losers.push({name:p.name, pick:dp.choice, lives:p.lives});
+          if(p.lives===0||p.eliminated) eliminated.push({name:p.name, pick:dp.choice});
+        }
+      });
+
+      // Match results
+      const matchResults = dayMatches.map(m=>{
+        const homeRes = results[`${pickDate}|${m.home}`];
+        const awayRes = results[`${pickDate}|${m.away}`];
+        const winner = homeRes==="win"?m.home:awayRes==="win"?m.away:"Draw";
+        return `${m.home} vs ${m.away}: ${winner==="Draw"?"Draw":winner+" won"}`;
+      }).join("; ");
+
+      // Midda's Law check
+      const midden = activePlayers.length>0 && losers.length===activePlayers.length;
+
+      const slides = await generateSlides(
+        `You are the brutally funny host of "The Ray Gunn Cup — Last Person Standing 2026".
+        Results are in for ${fmtDate(pickDate)}.
+        
+        Results: ${matchResults}
+        Players who got it RIGHT: ${winners.join(", ")||"literally nobody"}
+        Players who got it WRONG (and lost a life): ${losers.map(l=>`${l.name} (picked ${l.pick}, now on ${l.lives} lives)`).join(", ")||"nobody — Midda's Law?"}
+        Players ELIMINATED today: ${eliminated.length>0?eliminated.map(e=>`${e.name} (went out on ${e.pick})`).join(", "):"nobody eliminated today"}
+        Midda's Law triggered (everyone wrong, nobody loses a life): ${midden?"YES — absolute shambles":"no"}
+        Players still in: ${stillIn}, pot: £${pot}
+        
+        Generate exactly ${eliminated.length>0?5:4} slides.
+        Slide 1: Results summary — what happened in the matches, who called it.
+        Slide 2: Walk of shame — brutal roast of players who lost lives. Name them. Be savage but funny.
+        ${eliminated.length>0?`Slide 3: ELIMINATION — massive dramatic slide for ${eliminated.map(e=>e.name).join(" and ")}. Ruthless. Mention what team they backed. Public humiliation.`:""}
+        Slide ${eliminated.length>0?4:3}: ${midden?"Midda's Law celebration — everyone was wrong together, nobody loses a life. Chaotic energy.":"Leaderboard snapshot — who's thriving, who's clinging on."}
+        Slide ${eliminated.length>0?5:4}: Sign-off — what's coming tomorrow, build tension.
+        
+        Be SAVAGE with names. Australian energy. Short punchy sentences.
+        Each slide: icon (emoji), title (ALL CAPS, 4-6 words), body (2-4 sentences).
+        Respond ONLY with valid JSON array, no markdown:
+        [{"icon":"💀","title":"TITLE","body":"body"},...]`
+      );
+      if(slides) showPopup(slides, resKey);
+      return;
+    }
+  }, [activeId, players, results, today]); // eslint-disable-line
+
+  // Check popups when players/results load or active player changes
+  useEffect(() => {
+    if(players.length>0 && activeId) {
+      const t = setTimeout(checkPopups, 1500); // slight delay so app loads first
+      return ()=>clearTimeout(t);
+    }
+  }, [activeId, players.length, Object.keys(results).length]); // eslint-disable-line
+
+  // ── AUTO RESULTS — polls football-data.org every 5 mins ──────────────
 
   // Map football-data.org team names → our team names
   const TEAM_NAME_MAP = {
@@ -1466,7 +1686,7 @@ export default function App() {
     {rank:1,  team:"France",           flag:"🇫🇷"},
     {rank:2,  team:"Spain",            flag:"🇪🇸"},
     {rank:3,  team:"Argentina",        flag:"🇦🇷"},
-    {rank:4,  team:"England",          flag:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
+    {rank:4,  team:"England",          flag:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
     {rank:5,  team:"Portugal",         flag:"🇵🇹"},
     {rank:6,  team:"Brazil",           flag:"🇧🇷"},
     {rank:7,  team:"Netherlands",      flag:"🇳🇱"},
@@ -1496,7 +1716,7 @@ export default function App() {
     {rank:41, team:"Czechia",          flag:"🇨🇿"},
     {rank:42, team:"Turkiye",          flag:"🇹🇷"},
     {rank:44, team:"Norway",           flag:"🇳🇴"},
-    {rank:47, team:"Scotland",         flag:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    {rank:47, team:"Scotland",         flag:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
     {rank:51, team:"DR Congo",         flag:"🇨🇩"},
     {rank:52, team:"Bosnia & Herz.",   flag:"🇧🇦"},
     {rank:53, team:"Panama",           flag:"🇵🇦"},
@@ -1885,6 +2105,39 @@ export default function App() {
         <footer style={{textAlign:"center",padding:"24px 0 32px",borderTop:`1px solid rgba(255,255,255,0.05)`,marginTop:8}}>
           <button style={{background:"none",border:"none",color:T.muted,fontSize:11,cursor:"pointer",opacity:0.5}} onClick={()=>setScreen("admin")}>👑 Admin</button>
         </footer>
+      )}
+      {/* ── POPUP CAROUSEL ── */}
+      {popupSlides&&popupSlides.slides.length>0&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div style={{width:"100%",maxWidth:400,position:"relative"}}>
+            <button onClick={()=>setPopupSlides(null)} style={{position:"absolute",top:-44,right:0,background:"none",border:"none",color:T.muted,fontSize:13,cursor:"pointer",padding:"8px 12px"}}>Skip all ✕</button>
+            {(()=>{
+              const slide = popupSlides.slides[popupIdx];
+              if(!slide) return null;
+              return (
+                <div style={{background:"linear-gradient(135deg,#0d1f00,#1a3300)",border:`1px solid ${T.amberBorder}`,borderRadius:20,padding:32,textAlign:"center",minHeight:280,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
+                  <div style={{fontSize:52,marginBottom:4}}>{slide.icon}</div>
+                  <div style={{fontSize:18,fontWeight:900,color:T.amber,letterSpacing:1,lineHeight:1.2,textTransform:"uppercase"}}>{slide.title}</div>
+                  <div style={{fontSize:14,color:T.text,lineHeight:1.7,maxWidth:320}}>{slide.body}</div>
+                </div>
+              );
+            })()}
+            <div style={{display:"flex",justifyContent:"center",gap:6,marginTop:16}}>
+              {popupSlides.slides.map((_,i)=>(
+                <div key={i} style={{width:i===popupIdx?20:6,height:6,borderRadius:3,background:i===popupIdx?T.amber:"rgba(255,255,255,0.2)",transition:"all 0.2s"}}/>
+              ))}
+            </div>
+            <button
+              onClick={()=>{
+                if(popupIdx < popupSlides.slides.length-1) setPopupIdx(popupIdx+1);
+                else setPopupSlides(null);
+              }}
+              style={{...btn("amber"),width:"100%",marginTop:16,fontSize:15,padding:"13px"}}
+            >
+              {popupIdx < popupSlides.slides.length-1 ? "Next →" : "Let's go 🏆"}
+            </button>
+          </div>
+        </div>
       )}
       {howardsResult&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
