@@ -1814,7 +1814,7 @@ export default function App() {
       const hrs = Math.floor((ms%86400000)/3600000);
       const mins = Math.floor((ms%3600000)/60000);
       const secs = Math.floor((ms%60000)/1000);
-      let text = days>0 ? `${days}d ${hrs}h ${mins}m` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
+      let text = days>0 ? `${days}d ${hrs}h ${mins}m ${secs}s` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
       return { label:"GAME BEGINS", text, color:T.amber, icon:"🏆", hasPick:false, locked:false };
     }
 
@@ -1833,7 +1833,7 @@ export default function App() {
         const hrs = Math.floor((ms%86400000)/3600000);
         const mins = Math.floor((ms%3600000)/60000);
         const secs = Math.floor((ms%60000)/1000);
-        let text = days>0 ? `${days}d ${hrs}h ${mins}m` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
+        let text = days>0 ? `${days}d ${hrs}h ${mins}m ${secs}s` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
         const hasPick = activePlayer ? !!getDayPick(activePlayer, pickDate) : false;
         const locked = isLocked(pickDate) && pickDate===today;
 
@@ -1866,27 +1866,36 @@ export default function App() {
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}select option{background:#0d2016}button:hover:not(:disabled){filter:brightness(1.1)}`}</style>
       {isNav&&(
-        <header style={{background:"rgba(0,0,0,0.6)",borderBottom:`1px solid ${T.amberBorder}`,padding:"11px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
-          <button style={{display:"flex",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",padding:0}} onClick={()=>setScreen("profile")}>
-            <span style={{fontSize:22}}>🏆</span>
-            <div style={{textAlign:"left"}}>
-              <div style={{fontSize:16,fontWeight:900,color:T.amber}}>Last Person Standing 2026</div>
-              <div style={{fontSize:9,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>The Ray Gunn Cup</div>
-            </div>
-          </button>
-          <nav style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-            {activePlayer&&<button style={navBtn(screen==="pick")} onClick={()=>setScreen("pick")}>⚽ My Picks</button>}
-            <button style={navBtn(screen==="grid")} onClick={()=>setScreen("grid")}>📊 Grid</button>
-            <button style={navBtn(screen==="schedule")} onClick={()=>setScreen("schedule")}>📅 Schedule</button>
-            <button style={navBtn(screen==="rules")} onClick={()=>setScreen("rules")}>📖 Rules</button>
-            <button style={{...btn("amber"),fontSize:13,padding:"7px 13px"}} onClick={()=>setScreen("profile")}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</button>
-            {navTimer&&(
-              <button onClick={()=>!navTimer.locked&&setScreen("pick")} style={{background:navTimer.locked?"rgba(255,255,255,0.06)":navTimer.hasPick?"rgba(0,132,61,0.2)":`rgba(255,215,0,0.12)`,border:`1px solid ${navTimer.locked?"rgba(255,255,255,0.12)":navTimer.hasPick?T.greenBorder:T.amberBorder}`,borderRadius:10,padding:"6px 14px",cursor:navTimer.locked?"default":"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:90}}>
-                <span style={{fontSize:9,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:navTimer.locked?T.muted:navTimer.color,opacity:0.8}}>{navTimer.icon} {navTimer.label}</span>
-                <span style={{fontSize:15,fontWeight:900,color:navTimer.color,letterSpacing:-0.5}}>{navTimer.text||"—"}</span>
+        <header style={{background:"rgba(0,0,0,0.6)",borderBottom:`1px solid ${T.amberBorder}`}}>
+          {/* Row 1: Logo + Name + Lives */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 18px",gap:10}}>
+            <button style={{display:"flex",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",padding:0}} onClick={()=>setScreen("profile")}>
+              <span style={{fontSize:22}}>🏆</span>
+              <div style={{textAlign:"left"}}>
+                <div style={{fontSize:15,fontWeight:900,color:T.amber,lineHeight:1.2}}>Last Person Standing 2026</div>
+                <div style={{fontSize:9,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>The Ray Gunn Cup</div>
+              </div>
+            </button>
+            <button onClick={()=>setScreen("profile")} style={{display:"flex",alignItems:"center",gap:8,background:T.amberBg,border:`1px solid ${T.amberBorder}`,borderRadius:10,padding:"7px 13px",cursor:"pointer",flexShrink:0}}>
+              <span style={{fontSize:13,fontWeight:800,color:T.amber}}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</span>
+              {activePlayer&&<span style={{fontSize:11,color:T.muted,marginLeft:4}}>{"❤️".repeat(activePlayer.lives)}</span>}
+            </button>
+          </div>
+          {/* Row 2: Nav tabs */}
+          <div style={{display:"flex",borderTop:`1px solid rgba(255,255,255,0.06)`}}>
+            {(activePlayer?[["⚽","My Picks","pick"],["📊","Grid","grid"],["📅","Schedule","schedule"],["📖","Rules","rules"]]:[["📊","Grid","grid"],["📅","Schedule","schedule"],["📖","Rules","rules"]]).map(([icon,label,key])=>(
+              <button key={key} onClick={()=>setScreen(key)} style={{flex:1,padding:"9px 4px",background:screen===key?T.amberBg:"transparent",border:"none",borderBottom:screen===key?`2px solid ${T.amber}`:"2px solid transparent",color:screen===key?T.amber:T.muted,cursor:"pointer",fontSize:12,fontWeight:screen===key?700:400,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all 0.15s"}}>
+                {icon} {label}
               </button>
-            )}
-          </nav>
+            ))}
+          </div>
+          {/* Row 3: Timer full width */}
+          {navTimer&&(
+            <div onClick={()=>!navTimer.locked&&setScreen("pick")} style={{borderTop:`1px solid rgba(255,255,255,0.06)`,padding:"7px 18px",background:navTimer.locked?"rgba(255,255,255,0.02)":navTimer.hasPick?"rgba(0,132,61,0.10)":"rgba(255,215,0,0.07)",display:"flex",alignItems:"center",justifyContent:"center",gap:12,cursor:navTimer.locked?"default":"pointer"}}>
+              <span style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:navTimer.color,opacity:0.85}}>{navTimer.icon} {navTimer.label}</span>
+              <span style={{fontSize:19,fontWeight:900,color:navTimer.color,letterSpacing:-0.5,fontFamily:"monospace"}}>{navTimer.text}</span>
+            </div>
+          )}
         </header>
       )}
       <main style={{maxWidth:isNav?940:"none",margin:"0 auto",padding:isNav?"18px 14px":0}}>
