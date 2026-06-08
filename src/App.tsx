@@ -1420,22 +1420,110 @@ export default function App() {
     );
   }
 
+  // FIFA Rankings - April 1 2026 official update, all 48 WC teams
+  const FIFA_RANKINGS = [
+    {rank:1,  team:"France",           flag:"🇫🇷"},
+    {rank:2,  team:"Spain",            flag:"🇪🇸"},
+    {rank:3,  team:"Argentina",        flag:"🇦🇷"},
+    {rank:4,  team:"England",          flag:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
+    {rank:5,  team:"Portugal",         flag:"🇵🇹"},
+    {rank:6,  team:"Brazil",           flag:"🇧🇷"},
+    {rank:7,  team:"Netherlands",      flag:"🇳🇱"},
+    {rank:8,  team:"Morocco",          flag:"🇲🇦"},
+    {rank:9,  team:"Belgium",          flag:"🇧🇪"},
+    {rank:10, team:"Germany",          flag:"🇩🇪"},
+    {rank:11, team:"Croatia",          flag:"🇭🇷"},
+    {rank:13, team:"Colombia",         flag:"🇨🇴"},
+    {rank:14, team:"Senegal",          flag:"🇸🇳"},
+    {rank:15, team:"Mexico",           flag:"🇲🇽"},
+    {rank:16, team:"USA",              flag:"🇺🇸"},
+    {rank:17, team:"Uruguay",          flag:"🇺🇾"},
+    {rank:18, team:"Japan",            flag:"🇯🇵"},
+    {rank:19, team:"Switzerland",      flag:"🇨🇭"},
+    {rank:21, team:"Iran",             flag:"🇮🇷"},
+    {rank:23, team:"Austria",          flag:"🇦🇹"},
+    {rank:24, team:"Ecuador",          flag:"🇪🇨"},
+    {rank:25, team:"South Korea",      flag:"🇰🇷"},
+    {rank:26, team:"Australia",        flag:"🇦🇺"},
+    {rank:29, team:"Egypt",            flag:"🇪🇬"},
+    {rank:30, team:"Canada",           flag:"🇨🇦"},
+    {rank:33, team:"Ivory Coast",      flag:"🇨🇮"},
+    {rank:35, team:"Qatar",            flag:"🇶🇦"},
+    {rank:36, team:"Algeria",          flag:"🇩🇿"},
+    {rank:39, team:"Sweden",           flag:"🇸🇪"},
+    {rank:40, team:"Tunisia",          flag:"🇹🇳"},
+    {rank:41, team:"Czechia",          flag:"🇨🇿"},
+    {rank:42, team:"Turkiye",          flag:"🇹🇷"},
+    {rank:44, team:"Norway",           flag:"🇳🇴"},
+    {rank:47, team:"Scotland",         flag:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
+    {rank:51, team:"DR Congo",         flag:"🇨🇩"},
+    {rank:52, team:"Bosnia & Herz.",   flag:"🇧🇦"},
+    {rank:53, team:"Panama",           flag:"🇵🇦"},
+    {rank:57, team:"Saudi Arabia",     flag:"🇸🇦"},
+    {rank:60, team:"South Africa",     flag:"🇿🇦"},
+    {rank:61, team:"Iraq",             flag:"🇮🇶"},
+    {rank:63, team:"Ghana",            flag:"🇬🇭"},
+    {rank:68, team:"Jordan",           flag:"🇯🇴"},
+    {rank:69, team:"Haiti",            flag:"🇭🇹"},
+    {rank:72, team:"Uzbekistan",       flag:"🇺🇿"},
+    {rank:75, team:"Cape Verde",       flag:"🇨🇻"},
+    {rank:76, team:"Curacao",          flag:"🇨🇼"},
+    {rank:85, team:"New Zealand",      flag:"🇳🇿"},
+  ];
+
   function RulesView() {
-    const rules=[["💰","Entry & prize","£10 per player, paid in advance. Winner takes the pot. Use the link below to pay your entry fee before the tournament starts.","https://pay.collctiv.com/lps-2026-77059"],["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline."],["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27)."],["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined."],["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions."],["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds."],["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated."],["⚡","Howard's Law","Miss the deadline? Automatically assigned the lowest FIFA-ranked team playing that day. If already used, you lose a life."],["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life."],["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each."],["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner."],["🎬","Kejal's Rule","All winners are contractually obliged to create a piece of content for the Ray Gunn launch video, in perpetuity. Failure to deliver will result in an embarrassing photo being used as the WhatsApp group photo, or other elements of humiliation at Danny's discretion."]];
+    const [showRankings, setShowRankings] = useState(false);
+    const rules=[
+      ["💰","Entry & prize","£10 per player, paid in advance. Winner takes the pot. Use the link below to pay your entry fee before the tournament starts.","https://pay.collctiv.com/lps-2026-77059",null],
+      ["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline.",null,null],
+      ["🚫","No repeats — Group Stage","Can't pick the same team twice across the entire group stage (June 11–27).",null,null],
+      ["🚫","No repeats — L32 & L16","Same rule across Round of 32 and Round of 16 combined.",null,null],
+      ["✅","QF onwards — no restriction","Quarter-finals, semis and final: pick freely, no repeat restrictions.",null,null],
+      ["⚖️","Draw","Valid pick in group stage only. Not allowed in knockout rounds.",null,null],
+      ["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated.",null,null],
+      ["⚡","Howard's Law","Miss the deadline? You're automatically assigned the lowest FIFA-ranked team playing that day. If you've already used them, you lose a life instead.",null,"rankings"],
+      ["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life.",null,null],
+      ["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each.",null,null],
+      ["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner.",null,null],
+      ["🎬","Kejal's Rule","All winners are contractually obliged to create a piece of content for the Ray Gunn launch video, in perpetuity. Failure to deliver will result in an embarrassing photo being used as the WhatsApp group photo, or other elements of humiliation at Danny's discretion.",null,null],
+    ];
     return (
-      <div><div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
-        <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — The Ray Gunn Cup</p></div>
-        {rules.map(([icon,title,desc,link])=>(
-          <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
-            <div style={{fontSize:22,flexShrink:0,width:32,textAlign:"center",paddingTop:2}}>{icon}</div>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:700,fontSize:14,color:T.amber,marginBottom:4}}>{title}</div>
-              <div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div>
-              {link&&<a href={link} target="_blank" rel="noreferrer" style={{display:"inline-block",marginTop:8,fontSize:13,color:T.amber,fontWeight:700,textDecoration:"underline"}}>💳 Pay £10 entry fee →</a>}
+      <div>
+        <div style={{...card,background:T.amberBg,border:`1px solid ${T.amberBorder}`}}>
+          <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:40,marginBottom:8}}>📖</div><h2 style={{fontSize:22,fontWeight:800,color:T.amber,marginBottom:4}}>The Rules</h2><p style={{fontSize:13,color:T.muted}}>Last Person Standing — The Ray Gunn Cup</p></div>
+          {rules.map(([icon,title,desc,link,btn_])=>(
+            <div key={title} style={{display:"flex",gap:14,padding:"14px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
+              <div style={{fontSize:22,flexShrink:0,width:32,textAlign:"center",paddingTop:2}}>{icon}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:14,color:T.amber,marginBottom:4}}>{title}</div>
+                <div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div>
+                {link&&<a href={link} target="_blank" rel="noreferrer" style={{display:"inline-block",marginTop:8,fontSize:13,color:T.amber,fontWeight:700,textDecoration:"underline"}}>💳 Pay £10 entry fee →</a>}
+                {btn_==="rankings"&&<button onClick={()=>setShowRankings(true)} style={{display:"inline-block",marginTop:8,fontSize:12,color:T.amber,fontWeight:700,background:"rgba(255,215,0,0.1)",border:`1px solid ${T.amberBorder}`,borderRadius:8,padding:"5px 12px",cursor:"pointer"}}>🌍 View FIFA Rankings →</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* FIFA Rankings popup */}
+        {showRankings&&(
+          <div onClick={()=>setShowRankings(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:20,width:"100%",maxWidth:380,maxHeight:"82vh",overflowY:"auto"}}>
+              <div style={{fontSize:18,fontWeight:800,color:T.amber,marginBottom:4}}>🌍 FIFA Rankings</div>
+              <div style={{fontSize:11,color:T.muted,marginBottom:16}}>All 48 World Cup teams · April 2026 official rankings. If you miss the deadline, you get assigned the lowest-ranked team playing that day.</div>
+              {FIFA_RANKINGS.map((t,i)=>(
+                <div key={t.team} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:11,color:T.muted,width:20,textAlign:"right",flexShrink:0}}>#{t.rank}</div>
+                  <div style={{fontSize:18,flexShrink:0}}>{t.flag}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:i>=40?T.red:T.text}}>{t.team}</div>
+                  {i>=40&&<div style={{fontSize:10,color:T.red,marginLeft:"auto"}}>⚠️ danger zone</div>}
+                </div>
+              ))}
+              <div style={{fontSize:11,color:T.muted,margin:"12px 0 4px"}}>Source: Official FIFA World Ranking, April 1 2026</div>
+              <button style={{...btn("amber"),width:"100%",marginTop:8}} onClick={()=>setShowRankings(false)}>Close</button>
             </div>
           </div>
-        ))}
-      </div></div>
+        )}
+      </div>
     );
   }
 
@@ -1528,7 +1616,6 @@ export default function App() {
     const selP = selectedPlayer ? players.find(p=>p.id===selectedPlayer) : null;
 
     async function deletePlayer(pid) {
-      await supabase.from("picks").delete().eq("player_id",pid);
       await supabase.from("players").delete().eq("id",pid);
       setSelectedPlayer(null); setConfirmDelete(false);
       toast_("info","Player deleted."); loadAll(false);
@@ -1712,6 +1799,38 @@ export default function App() {
 
   const isNav=["pick","grid","schedule","rules","admin"].includes(screen);
 
+  // Nav timer
+  const [navNow, setNavNow] = useState(()=>new Date());
+  useEffect(()=>{ const i=setInterval(()=>setNavNow(new Date()),1000); return()=>clearInterval(i); },[]);
+
+  function getNavTimer() {
+    for(const pickDate of activeDates) {
+      const dlBST = deadlineBSTByPickDate[pickDate];
+      if(!dlBST) continue;
+      const [h,m] = dlBST.split(":").map(Number);
+      const etH = h >= 5 ? h - 5 : h + 19;
+      const dlUTC = new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
+      const adjusted = new Date(dlUTC.getTime() + 4*60*60*1000);
+      if(adjusted > navNow) {
+        const ms = adjusted - navNow;
+        const days = Math.floor(ms/86400000);
+        const hrs = Math.floor((ms%86400000)/3600000);
+        const mins = Math.floor((ms%3600000)/60000);
+        const secs = Math.floor((ms%60000)/1000);
+        const todayLocked = isLocked(pickDate);
+        const hasPick = activePlayer ? !!getDayPick(activePlayer, pickDate) : false;
+        let text = "";
+        if(days>0) text = `${days}d ${hrs}h ${mins}m`;
+        else if(hrs>0) text = `${hrs}h ${mins}m ${secs}s`;
+        else text = `${mins}m ${secs}s`;
+        return { text, hasPick, locked: todayLocked && pickDate===today };
+      }
+    }
+    return null;
+  }
+
+  const navTimer = getNavTimer();
+
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}select option{background:#0d2016}button:hover:not(:disabled){filter:brightness(1.1)}`}</style>
@@ -1725,6 +1844,12 @@ export default function App() {
             </div>
           </button>
           <nav style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+            {navTimer&&(
+              <button onClick={()=>setScreen("pick")} style={{background:navTimer.locked?"rgba(255,255,255,0.05)":navTimer.hasPick?"rgba(0,132,61,0.2)":"rgba(255,215,0,0.12)",border:`1px solid ${navTimer.locked?"rgba(255,255,255,0.1)":navTimer.hasPick?T.greenBorder:T.amberBorder}`,borderRadius:8,padding:"5px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                <span style={{fontSize:11}}>{navTimer.locked?"🔒":navTimer.hasPick?"✅":"⏱"}</span>
+                <span style={{fontSize:12,fontWeight:700,color:navTimer.locked?T.muted:navTimer.hasPick?T.green:T.amber}}>{navTimer.locked?"Closed":navTimer.text}</span>
+              </button>
+            )}
             {activePlayer&&<button style={navBtn(screen==="pick")} onClick={()=>setScreen("pick")}>⚽ My Picks</button>}
             <button style={navBtn(screen==="grid")} onClick={()=>setScreen("grid")}>📊 Grid</button>
             <button style={navBtn(screen==="schedule")} onClick={()=>setScreen("schedule")}>📅 Schedule</button>
