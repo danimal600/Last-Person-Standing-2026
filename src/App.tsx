@@ -386,31 +386,38 @@ export default function App() {
   function markSeen(k) { try { localStorage.setItem(seenKey(k),"1"); } catch {} }
   function hasSeen(k) { try { return !!localStorage.getItem(seenKey(k)); } catch { return false; } }
 
-  function showPopup(slides, key) {
-    if(hasSeen(key)) return;
-    markSeen(key);
-    setPopupIdx(0);
-    setPopupSlides({ slides, key });
-  }
-
-  async function generateSlides(prompt) {
+  async function generateSlides(prompt, fallbackSlides) {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{
+          "Content-Type":"application/json",
+          "anthropic-dangerous-direct-browser-access":"true",
+        },
         body: JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:1000,
           messages:[{ role:"user", content: prompt }]
         })
       });
+      if(!res.ok) throw new Error(`API error ${res.status}`);
       const data = await res.json();
       const raw = data.content?.[0]?.text||"[]";
       const clean = raw.replace(/```json|```/g,"").trim();
-      return JSON.parse(clean);
+      const parsed = JSON.parse(clean);
+      if(Array.isArray(parsed) && parsed.length>0) return parsed;
+      throw new Error("Empty response");
     } catch(e) {
       console.error("Popup generation error:",e);
-      return null;
+      return fallbackSlides || null;
+    }
+  }
+
+  function showPopupOnce(slides, key) {
+    markSeen(key); // mark seen immediately so we never try twice
+    if(slides && slides.length>0) {
+      setPopupIdx(0);
+      setPopupSlides({ slides, key });
     }
   }
 
@@ -436,6 +443,11 @@ export default function App() {
 
       if(hypeKey && !hasSeen(hypeKey)) {
         const dLabel = hypeKey==="hype_1d"?"1 DAY":hypeKey==="hype_2d"?"2 DAYS":hypeKey==="hype_3d"?"3 DAYS":"7 DAYS";
+        const fallback = [
+          {icon:"🏆",title:`${dLabel} TO GO`,body:`${playerCount} players. £${pot} in the pot. One winner. The Ray Gunn Cup starts June 11th. Are you ready?`},
+          {icon:"💰",title:"THE POT IS REAL",body:`£${pot} sitting there waiting. ${playerCount} players standing between you and it. Most of them are going to make terrible decisions.`},
+          {icon:"⚡",title:"DON'T BE HOWARD",body:`Deadline: 8:00pm BST on June 11th. Miss it and Howard's Law assigns you the worst team available. You have been warned.`},
+        ];
         const slides = await generateSlides(
           `You are the brutally funny, excited host of a World Cup prediction game called "The Ray Gunn Cup — Last Person Standing 2026". 
           Generate exactly 3 hype slides for a countdown popup showing ${dLabel} until the tournament starts.
@@ -443,9 +455,10 @@ export default function App() {
           Be genuinely exciting and funny. Short punchy sentences. Australian flavour (the colour scheme is green and gold). 
           Each slide has an icon (single emoji), title (4-6 words, ALL CAPS), and body (2-4 sentences, funny and punchy).
           Respond ONLY with a valid JSON array, no markdown, no preamble:
-          [{"icon":"🏆","title":"TITLE HERE","body":"Body text here."},...]`
+          [{"icon":"🏆","title":"TITLE HERE","body":"Body text here."},...]`,
+          fallback
         );
-        if(slides) showPopup(slides, hypeKey);
+        showPopupOnce(slides, hypeKey);
         return;
       }
     }
@@ -461,9 +474,14 @@ export default function App() {
         Mention the deadline. Mention Howard's Law as a threat to those who don't pick.
         Each slide: icon (emoji), title (ALL CAPS, 4-6 words), body (2-4 punchy funny sentences).
         Respond ONLY with valid JSON array, no markdown:
-        [{"icon":"🚨","title":"TITLE","body":"body"},...]`
+        [{"icon":"🚨","title":"TITLE","body":"body"},...]`,
+        [
+          {icon:"🚨",title:"IT STARTS TODAY",body:`The Ray Gunn Cup is LIVE. ${todayMatches.length} games to pick from today. One pick only. Choose wisely.`},
+          {icon:"⏰",title:"DEADLINE IS 8PM BST",body:`${playerCount} players. £${pot} pot. Deadline 8:00pm BST. Miss it and Howard's Law will pick for you. Don't be that person.`},
+          {icon:"🏆",title:"MAY THE BEST PICK WIN",body:`The tournament has begun. ${playerCount} players. ${playerCount*6} lives between you. Only one will survive. Good luck. You'll need it.`},
+        ]
       );
-      if(slides) showPopup(slides, "hype_matchday");
+      showPopupOnce(slides, "hype_matchday");
       return;
     }
 
@@ -497,26 +515,28 @@ export default function App() {
       const slides = await generateSlides(
         `You are the brutally funny host of "The Ray Gunn Cup — Last Person Standing 2026".
         The deadline has just passed for ${fmtDate(pickDate)}. Results not yet known.
-        
         Pick data:
         - Most popular pick: ${topPick?`${topPick[0]} (${topPick[1]} players)`:"none yet"}
         - All picks: ${sorted.map(([t,c])=>`${t}: ${c}`).join(", ")||"none"}
         - Players who missed deadline (Howard's Law victims): ${unpicked.length>0?unpicked.join(", "):"nobody — legend behaviour"}
         - Players on thin ice (2 lives or fewer): ${onThinIce.length>0?onThinIce.join(", "):"none yet"}
         - ${playerCount} total players, £${pot} pot, ${stillIn} still alive
-        - Number of games today: ${dayMatches.length}
-
         Generate exactly 4 slides. Be brutal, funny, specific with names. 
         Slide 1: picks summary and bandwagon callout.
-        Slide 2: maverick callout OR Howard's Law victims (${unpicked.length>0?"Howard's Law fired today":"everyone picked, surprisingly"}).
-        Slide 3: thin ice warning if relevant, otherwise general banter about the day ahead.
+        Slide 2: maverick callout OR Howard's Law victims.
+        Slide 3: thin ice warning if relevant, otherwise general banter.
         Slide 4: dramatic sign-off building tension before results.
-        
         Each slide: icon (emoji), title (ALL CAPS, 4-6 words), body (2-4 punchy sentences using real player names).
         Respond ONLY with valid JSON array, no markdown:
-        [{"icon":"⚽","title":"TITLE","body":"body"},...]`
+        [{"icon":"⚽","title":"TITLE","body":"body"},...]`,
+        [
+          {icon:"⚽",title:"PICKS ARE LOCKED",body:`Deadline has passed for ${fmtDate(pickDate)}. ${topPick?`${topPick[1]} of you backed ${topPick[0]}. The bandwagon is full.`:"All picks are in."} Results incoming.`},
+          {icon:unpicked.length>0?"⚡":"🎯",title:unpicked.length>0?"HOWARD'S LAW STRIKES":"EVERYONE PICKED",body:unpicked.length>0?`${unpicked.join(", ")} missed the deadline. Howard's Law has been applied. No sympathy.`:`Every single player made a pick today. Unprecedented scenes. ${maverick?`${maverick.name} went rogue. Noted.`:"Nobody went rogue. Boring."}`},
+          {icon:onThinIce.length>0?"💔":"❤️",title:onThinIce.length>0?"THIN ICE WARNING":"LIVES INTACT",body:onThinIce.length>0?`${onThinIce.join(", ")} — one wrong pick from elimination. One bad night and it's over.`:`${stillIn} players still standing. The cull continues. Results will change everything.`},
+          {icon:"🔥",title:"RESULTS INCOMING",body:`The games are underway. ${stillIn} players. £${pot} pot. Someone is about to have a very bad evening. Stay tuned.`},
+        ]
       );
-      if(slides) showPopup(slides, dlKey);
+      showPopupOnce(slides, dlKey);
       return;
     }
 
@@ -565,27 +585,29 @@ export default function App() {
       const slides = await generateSlides(
         `You are the brutally funny host of "The Ray Gunn Cup — Last Person Standing 2026".
         Results are in for ${fmtDate(pickDate)}.
-        
         Results: ${matchResults}
         Players who got it RIGHT: ${winners.join(", ")||"literally nobody"}
-        Players who got it WRONG (and lost a life): ${losers.map(l=>`${l.name} (picked ${l.pick}, now on ${l.lives} lives)`).join(", ")||"nobody — Midda's Law?"}
-        Players ELIMINATED today: ${eliminated.length>0?eliminated.map(e=>`${e.name} (went out on ${e.pick})`).join(", "):"nobody eliminated today"}
-        Midda's Law triggered (everyone wrong, nobody loses a life): ${midden?"YES — absolute shambles":"no"}
+        Players who got it WRONG (lost a life): ${losers.map(l=>`${l.name} (picked ${l.pick}, now on ${l.lives} lives)`).join(", ")||"nobody"}
+        Players ELIMINATED: ${eliminated.length>0?eliminated.map(e=>`${e.name} (went out on ${e.pick})`).join(", "):"nobody"}
+        Midda's Law triggered: ${midden?"YES":"no"}
         Players still in: ${stillIn}, pot: £${pot}
-        
-        Generate exactly ${eliminated.length>0?5:4} slides.
-        Slide 1: Results summary — what happened in the matches, who called it.
-        Slide 2: Walk of shame — brutal roast of players who lost lives. Name them. Be savage but funny.
-        ${eliminated.length>0?`Slide 3: ELIMINATION — massive dramatic slide for ${eliminated.map(e=>e.name).join(" and ")}. Ruthless. Mention what team they backed. Public humiliation.`:""}
-        Slide ${eliminated.length>0?4:3}: ${midden?"Midda's Law celebration — everyone was wrong together, nobody loses a life. Chaotic energy.":"Leaderboard snapshot — who's thriving, who's clinging on."}
-        Slide ${eliminated.length>0?5:4}: Sign-off — what's coming tomorrow, build tension.
-        
-        Be SAVAGE with names. Australian energy. Short punchy sentences.
-        Each slide: icon (emoji), title (ALL CAPS, 4-6 words), body (2-4 sentences).
+        Generate exactly ${eliminated.length>0?5:4} slides. Be SAVAGE. Australian energy.
+        Slide 1: Results summary. Slide 2: Walk of shame roast.
+        ${eliminated.length>0?`Slide 3: ELIMINATION of ${eliminated.map(e=>e.name).join(" and ")} — ruthless, mention their team.`:""}
+        Slide ${eliminated.length>0?4:3}: ${midden?"Midda's Law chaos celebration":"Leaderboard snapshot"}.
+        Slide ${eliminated.length>0?5:4}: Sign-off, build tension for tomorrow.
+        Each slide: icon (emoji), title (ALL CAPS), body (2-4 sentences).
         Respond ONLY with valid JSON array, no markdown:
-        [{"icon":"💀","title":"TITLE","body":"body"},...]`
+        [{"icon":"💀","title":"TITLE","body":"body"},...]`,
+        [
+          {icon:"🏁",title:"RESULTS ARE IN",body:`${matchResults}. ${winners.length>0?`${winners.join(", ")} called it right.`:"Nobody called it right."} ${losers.length>0?`${losers.length} player${losers.length!==1?"s":""} lost a life.`:""}`},
+          {icon:losers.length>0?"💔":"🎉",title:losers.length>0?"WALK OF SHAME":"CLEAN SHEET",body:losers.length>0?`${losers.map(l=>`${l.name} backed ${l.pick} and paid for it. Down to ${l.lives} lives.`).join(" ")}`:midden?"Midda's Law! Everyone was wrong. Nobody loses a life. Beautiful chaos.":"Everyone survived today. Don't get used to it."},
+          ...(eliminated.length>0?[{icon:"💀",title:`${eliminated.map(e=>e.name.toUpperCase()).join(" & ")} ELIMINATED`,body:`${eliminated.map(e=>`${e.name} went out backing ${e.pick}.`).join(" ")} The Ray Gunn Cup does not accept sympathy cards.`}]:[]),
+          {icon:midden?"⚖️":"📊",title:midden?"MIDDA'S LAW ACTIVATED":"LEADERBOARD CHECK",body:midden?`Everyone wrong today. Nobody loses a life. Absolute shambles. Midda's Law saves the group.`:`${stillIn} players still alive. £${pot} in the pot. The pressure is building.`},
+          {icon:"⏰",title:"SEE YOU TOMORROW",body:`${stillIn} survivors. £${pot} at stake. Every pick matters now. Don't be Howard tomorrow.`},
+        ]
       );
-      if(slides) showPopup(slides, resKey);
+      showPopupOnce(slides, resKey);
       return;
     }
   }, [activeId, players, results, today]); // eslint-disable-line
