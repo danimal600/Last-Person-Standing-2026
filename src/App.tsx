@@ -444,9 +444,9 @@ export default function App() {
       if(hypeKey && !hasSeen(hypeKey)) {
         const dLabel = hypeKey==="hype_1d"?"1 DAY":hypeKey==="hype_2d"?"2 DAYS":hypeKey==="hype_3d"?"3 DAYS":"7 DAYS";
         const fallback = [
-          {icon:"🏆",title:`${dLabel} TO GO`,body:`${playerCount} players. £${pot} in the pot. One winner. The Ray Gunn Cup starts June 11th. Are you ready?`},
-          {icon:"💰",title:"THE POT IS REAL",body:`£${pot} sitting there waiting. ${playerCount} players standing between you and it. Most of them are going to make terrible decisions.`},
-          {icon:"⚡",title:"DON'T BE HOWARD",body:`Deadline: 8:00pm BST on June 11th. Miss it and Howard's Law assigns you the worst team available. You have been warned.`},
+          {icon:"🏆",title:`${dLabel} TO GO`,body:`The Ray Gunn Cup is ${dLabel.toLowerCase()} away. ${playerCount} players entered. One will win £${pot}. The rest will spend the group stage second-guessing themselves.`},
+          {icon:"🧠",title:"STUDY THE FORM",body:`12 groups. 48 teams. You can only pick each team once per phase. Think before you pick Brazil in game one and regret it for three weeks.`},
+          {icon:"⚡",title:"FEAR HOWARD'S LAW",body:`Miss the deadline and the app automatically picks the lowest-ranked team playing that day on your behalf. It has no conscience. It has no mercy. Set a reminder.`},
         ];
         const slides = await generateSlides(
           `You are the brutally funny, excited host of a World Cup prediction game called "The Ray Gunn Cup — Last Person Standing 2026". 
