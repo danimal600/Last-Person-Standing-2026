@@ -276,10 +276,11 @@ export default function App() {
   const [koFixtures, setKoFixtures] = useState({});
   const [results,    setResults]    = useState({});
   const [loading,    setLoading]    = useState(true);
-  const [toast,      setToast]      = useState(null);
+  const [toast,       setToast]       = useState(null);
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [liveScores,  setLiveScores]  = useState({});
   const [navNow,      setNavNow]      = useState(()=>new Date());
+  const [howardsResult, setHowardsResult] = useState(null);
   const toastRef = useRef(null);
 
   const activePlayer = players.find(p=>p.id==activeId)||null;
@@ -903,7 +904,7 @@ export default function App() {
     if(!unpicked.length){toast_("info","All active players already have picks.");return;}
     const inserts = unpicked.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(firstMatch.id),choice:lowest}));
     await supabase.from("picks").upsert(inserts,{onConflict:"player_id,pick_date,match_id"});
-    toast_("info",`Howard's Law — ${unpicked.length} player(s) assigned ${lowest}`);
+    setHowardsResult({pickDate, players:unpicked.map(p=>p.name), team:lowest});
     loadAll();
   }
 
@@ -1803,6 +1804,21 @@ export default function App() {
   const isNav=["pick","grid","schedule","rules","admin"].includes(screen);
 
   function getNavTimer() {
+    const tournamentStart = new Date("2026-06-11T19:00:00Z"); // 15:00 ET = 19:00 UTC
+    const now = navNow;
+
+    // Before tournament starts
+    if(now < tournamentStart) {
+      const ms = tournamentStart - now;
+      const days = Math.floor(ms/86400000);
+      const hrs = Math.floor((ms%86400000)/3600000);
+      const mins = Math.floor((ms%3600000)/60000);
+      const secs = Math.floor((ms%60000)/1000);
+      let text = days>0 ? `${days}d ${hrs}h ${mins}m` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
+      return { label:"GAME BEGINS", text, color:T.amber, icon:"🏆", hasPick:false, locked:false };
+    }
+
+    // Find next deadline
     for(const pickDate of activeDates) {
       const dlBST = deadlineBSTByPickDate[pickDate];
       if(!dlBST) continue;
@@ -1810,22 +1826,38 @@ export default function App() {
       const etH = h >= 5 ? h - 5 : h + 19;
       const dlUTC = new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
       const adjusted = new Date(dlUTC.getTime() + 4*60*60*1000);
-      if(adjusted > navNow) {
-        const ms = adjusted - navNow;
+
+      if(adjusted > now) {
+        const ms = adjusted - now;
         const days = Math.floor(ms/86400000);
         const hrs = Math.floor((ms%86400000)/3600000);
         const mins = Math.floor((ms%3600000)/60000);
         const secs = Math.floor((ms%60000)/1000);
-        const todayLocked = isLocked(pickDate);
+        let text = days>0 ? `${days}d ${hrs}h ${mins}m` : hrs>0 ? `${hrs}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
         const hasPick = activePlayer ? !!getDayPick(activePlayer, pickDate) : false;
-        let text = "";
-        if(days>0) text = `${days}d ${hrs}h ${mins}m`;
-        else if(hrs>0) text = `${hrs}h ${mins}m ${secs}s`;
-        else text = `${mins}m ${secs}s`;
-        return { text, hasPick, locked: todayLocked && pickDate===today };
+        const locked = isLocked(pickDate) && pickDate===today;
+
+        if(locked) {
+          // Deadline passed today — before midnight
+          // Find midnight ET
+          const midnightUTC = new Date(`${pickDate}T04:00:00Z`); // midnight ET = 04:00 UTC
+          if(now < midnightUTC) {
+            return { label:"PICKS CLOSED", text:"picks reopen at midnight", color:T.muted, icon:"🔒", hasPick, locked:true };
+          }
+        }
+
+        return {
+          label: hasPick ? "PICK MADE" : "NEXT DEADLINE",
+          text,
+          color: hasPick ? T.green : T.amber,
+          icon: hasPick ? "✅" : "⏱",
+          hasPick,
+          locked: false,
+        };
       }
     }
-    return null;
+
+    return { label:"FINISHED", text:"", color:T.muted, icon:"🏁", hasPick:false, locked:false };
   }
 
   const navTimer = getNavTimer();
@@ -1843,17 +1875,17 @@ export default function App() {
             </div>
           </button>
           <nav style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-            {navTimer&&(
-              <button onClick={()=>setScreen("pick")} style={{background:navTimer.locked?"rgba(255,255,255,0.05)":navTimer.hasPick?"rgba(0,132,61,0.2)":"rgba(255,215,0,0.12)",border:`1px solid ${navTimer.locked?"rgba(255,255,255,0.1)":navTimer.hasPick?T.greenBorder:T.amberBorder}`,borderRadius:8,padding:"5px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-                <span style={{fontSize:11}}>{navTimer.locked?"🔒":navTimer.hasPick?"✅":"⏱"}</span>
-                <span style={{fontSize:12,fontWeight:700,color:navTimer.locked?T.muted:navTimer.hasPick?T.green:T.amber}}>{navTimer.locked?"Closed":navTimer.text}</span>
-              </button>
-            )}
             {activePlayer&&<button style={navBtn(screen==="pick")} onClick={()=>setScreen("pick")}>⚽ My Picks</button>}
             <button style={navBtn(screen==="grid")} onClick={()=>setScreen("grid")}>📊 Grid</button>
             <button style={navBtn(screen==="schedule")} onClick={()=>setScreen("schedule")}>📅 Schedule</button>
             <button style={navBtn(screen==="rules")} onClick={()=>setScreen("rules")}>📖 Rules</button>
             <button style={{...btn("amber"),fontSize:13,padding:"7px 13px"}} onClick={()=>setScreen("profile")}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</button>
+            {navTimer&&(
+              <button onClick={()=>!navTimer.locked&&setScreen("pick")} style={{background:navTimer.locked?"rgba(255,255,255,0.06)":navTimer.hasPick?"rgba(0,132,61,0.2)":`rgba(255,215,0,0.12)`,border:`1px solid ${navTimer.locked?"rgba(255,255,255,0.12)":navTimer.hasPick?T.greenBorder:T.amberBorder}`,borderRadius:10,padding:"6px 14px",cursor:navTimer.locked?"default":"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,minWidth:90}}>
+                <span style={{fontSize:9,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:navTimer.locked?T.muted:navTimer.color,opacity:0.8}}>{navTimer.icon} {navTimer.label}</span>
+                <span style={{fontSize:15,fontWeight:900,color:navTimer.color,letterSpacing:-0.5}}>{navTimer.text||"—"}</span>
+              </button>
+            )}
           </nav>
         </header>
       )}
@@ -1870,6 +1902,21 @@ export default function App() {
         <footer style={{textAlign:"center",padding:"24px 0 32px",borderTop:`1px solid rgba(255,255,255,0.05)`,marginTop:8}}>
           <button style={{background:"none",border:"none",color:T.muted,fontSize:11,cursor:"pointer",opacity:0.5}} onClick={()=>setScreen("admin")}>👑 Admin</button>
         </footer>
+      )}
+      {howardsResult&&(
+        <div onClick={()=>setHowardsResult(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:340}}>
+            <div style={{fontSize:18,fontWeight:800,color:T.amber,marginBottom:4}}>⚡ Howard's Law Applied</div>
+            <div style={{fontSize:12,color:T.muted,marginBottom:16}}>{fmtDate(howardsResult.pickDate)}</div>
+            <div style={{fontSize:13,color:T.text,marginBottom:16}}>
+              {howardsResult.players.length} player{howardsResult.players.length!==1?"s":""} assigned {f(howardsResult.team)} <strong>{howardsResult.team}</strong>:
+            </div>
+            {howardsResult.players.map((name,i)=>(
+              <div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${T.border}`,fontSize:14,fontWeight:600}}>{name}</div>
+            ))}
+            <button style={{...btn("amber"),width:"100%",marginTop:16}} onClick={()=>setHowardsResult(null)}>Got it</button>
+          </div>
+        </div>
       )}
       {toast&&<div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:toast.type==="error"?"rgba(160,35,35,0.97)":toast.type==="success"?"rgba(20,120,55,0.97)":"rgba(20,70,140,0.97)",color:"#fff",padding:"11px 24px",borderRadius:30,fontSize:14,fontWeight:600,boxShadow:"0 4px 28px rgba(0,0,0,0.6)",zIndex:999,whiteSpace:"nowrap",animation:"slideUp 0.2s ease"}}>{toast.msg}</div>}
     </div>
