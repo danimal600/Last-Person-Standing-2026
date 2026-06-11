@@ -1063,42 +1063,36 @@ export default function App() {
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
-  // ── LIVE SCORES — single call for today's matches, polls every 60s ──────
+  // ── LIVE SCORES — single call for all WC matches, filter client-side ───
   const fetchLiveScores = useCallback(async () => {
     try {
-      // One call for today's ET date — returns all matches regardless of status
-      const etToday = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(new Date());
-      const etYesterday = new Date(Date.now() - 86400000);
-      const etYesterdayStr = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(etYesterday);
-
+      const res = await fetch(
+        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches"
+      );
+      if(!res.ok) { console.log("Live scores fetch failed:", res.status); return; }
+      const data = await res.json();
+      console.log("Live scores: got", data.matches?.length, "matches");
       const scores = {};
-
-      // Fetch today's matches
-      for(const dateStr of [etYesterdayStr, etToday]) {
-        const res = await fetch(
-          `/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3FdateFrom%3D${dateStr}%26dateTo%3D${dateStr}`
-        );
-        if(!res.ok) continue;
-        const data = await res.json();
-        (data.matches||[]).forEach(m => {
-          const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
-          const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
-          const key = `${home}|${away}`;
-          const status = m.status;
-          const isLiveStatus = ["IN_PLAY","PAUSED","HALFTIME"].includes(status);
-          const isDone = status === "FINISHED";
-          if(isLiveStatus || isDone) {
-            scores[key] = {
-              home, away,
-              homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
-              awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
-              minute: m.minute || null,
-              status,
-            };
-          }
-        });
-      }
-
+      const twoDaysAgo = new Date(Date.now() - 2*24*3600*1000);
+      (data.matches||[]).forEach(m => {
+        const status = m.status;
+        const isLive = ["IN_PLAY","PAUSED","HALFTIME"].includes(status);
+        const isFinished = status === "FINISHED";
+        // Only include live or recently finished
+        if(!isLive && (!isFinished || new Date(m.utcDate) < twoDaysAgo)) return;
+        const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
+        const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
+        if(!home || !away) return;
+        const key = `${home}|${away}`;
+        scores[key] = {
+          home, away,
+          homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
+          awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
+          minute: m.minute || null,
+          status,
+        };
+        console.log(`Score: ${home} ${scores[key].homeScore}-${scores[key].awayScore} ${away} [${status}]`);
+      });
       setLiveScores(scores);
     } catch(e) {
       console.error("Live scores error:", e);
@@ -1107,7 +1101,7 @@ export default function App() {
 
   useEffect(() => {
     fetchLiveScores();
-    const i = setInterval(fetchLiveScores, 60000); // every 60s — only 2 API calls per minute
+    const i = setInterval(fetchLiveScores, 90000); // every 90s — 1 call per poll
     return () => clearInterval(i);
   }, [fetchLiveScores]);
 
