@@ -1287,7 +1287,7 @@ export default function App() {
           {!(isLive||isFinished)&&<span style={{color:T.muted}}> vs </span>}
           {m.away?`${f(m.away)} ${m.away}`:"TBD"}
         </div>
-        <span style={{fontSize:11,color:isLive?T.red:T.muted,flexShrink:0,marginLeft:4}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinished?"FT":fmtBST(m.kickoffBST)+" BST"}</span>
+        <span style={{fontSize:11,color:isLive?T.red:T.muted,flexShrink:0,marginLeft:4}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinished?"":fmtBST(m.kickoffBST)+" BST"}</span>
       </div>
     );
   }
