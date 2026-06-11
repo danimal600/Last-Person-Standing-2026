@@ -1085,16 +1085,14 @@ export default function App() {
         };
       });
 
-      // Also grab today's FINISHED matches for final scores
+      // Grab ALL recent finished matches (last 2 days) for final scores
       const resF = await fetch(
         "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DFINISHED"
       );
       if(resF.ok) {
         const dataF = await resF.json();
-        // Only keep today's finished matches
-        const todayET = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(new Date());
-        (dataF.matches||[]).filter(m => m.utcDate?.startsWith(todayET.slice(0,10)) ||
-          new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(m.utcDate))===todayET
+        const twoDaysAgo = new Date(Date.now() - 2*24*3600*1000);
+        (dataF.matches||[]).filter(m => new Date(m.utcDate) >= twoDaysAgo
         ).forEach(m => {
           const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
           const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
