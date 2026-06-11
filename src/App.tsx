@@ -600,8 +600,8 @@ export default function App() {
         Respond ONLY with valid JSON array, no markdown:
         [{"icon":"💀","title":"TITLE","body":"body"},...]`,
         [
-          {icon:"🏁",title:"RESULTS ARE IN",body:`${matchResults}. ${winners.length>0?`${winners.join(", ")} called it right.`:"Nobody called it right."} ${losers.length>0?`${losers.length} player${losers.length!==1?"s":""} lost a life.`:""}`},
-          {icon:losers.length>0?"💔":"🎉",title:losers.length>0?"WALK OF SHAME":"CLEAN SHEET",body:losers.length>0?`${losers.map(l=>`${l.name} backed ${l.pick} and paid for it. Down to ${l.lives} lives.`).join(" ")}`:midden?"Midda's Law! Everyone was wrong. Nobody loses a life. Beautiful chaos.":"Everyone survived today. Don't get used to it."},
+          {icon:"🏁",title:"RESULTS ARE IN",body:`${matchResults}. ${winners.length>0?`${winners.join(", ")} called it right.`:"Nobody called it right."} ${losers.length>0?`${losers.length} player${losers.length!==1?"s":""} lose a life tonight.`:""}`},
+          {icon:losers.length>0?"💔":"🎉",title:losers.length>0?"WALK OF SHAME":"CLEAN SHEET",body:losers.length>0?losers.map(l=>`${l.name} backed ${l.pick}. ❤️ down to ${l.lives} live${l.lives!==1?"s":""}.`).join(" "):midden?"Midda's Law! Everyone was wrong. Nobody loses a life. Beautiful chaos.":"Everyone survived today. Don't get used to it."},
           ...(eliminated.length>0?[{icon:"💀",title:`${eliminated.map(e=>e.name.toUpperCase()).join(" & ")} ELIMINATED`,body:`${eliminated.map(e=>`${e.name} went out backing ${e.pick}.`).join(" ")} The Ray Gunn Cup does not accept sympathy cards.`}]:[]),
           {icon:midden?"⚖️":"📊",title:midden?"MIDDA'S LAW ACTIVATED":"LEADERBOARD CHECK",body:midden?`Everyone wrong today. Nobody loses a life. Absolute shambles. Midda's Law saves the group.`:`${stillIn} players still alive. £${pot} in the pot. The pressure is building.`},
           {icon:"⏰",title:"SEE YOU TOMORROW",body:`${stillIn} survivors. £${pot} at stake. Every pick matters now. Don't be Howard tomorrow.`},
@@ -646,71 +646,125 @@ export default function App() {
 
   const checkAutoResults = useCallback(async (currentResults, currentPlayers) => {
     try {
-      const res = await fetch(
-        "https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED",
-        { headers: { "X-Auth-Token": FDORG_TOKEN } }
-      );
+      // Fetch finished matches
+      const res = await fetch("/.netlify/functions/fdorg?path=competitions/WC/matches?status=FINISHED");
       if(!res.ok) return;
       const data = await res.json();
-      const matches = data.matches || [];
+      const finishedMatches = data.matches || [];
 
-      for(const match of matches) {
+      // Fetch in-progress/scheduled matches to know if a day is fully done
+      const resLive = await fetch("/.netlify/functions/fdorg?path=competitions/WC/matches?status=IN_PLAY,PAUSED,HALFTIME,SCHEDULED,TIMED");
+      const liveData = resLive.ok ? await resLive.json() : {matches:[]};
+      const notFinished = liveData.matches || [];
+
+      // Build a set of ET dates that still have matches in progress
+      const datesStillPlaying = new Set(
+        notFinished
+          .filter(m => ["IN_PLAY","PAUSED","HALFTIME"].includes(m.status))
+          .map(m => new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(m.utcDate)))
+      );
+
+      // Build a set of ET dates that still have unstarted matches today or earlier
+      const datesWithPendingMatches = new Set(
+        notFinished
+          .filter(m => ["SCHEDULED","TIMED"].includes(m.status))
+          .map(m => new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(m.utcDate)))
+      );
+
+      // Group finished matches by ET pick date, skip already logged
+      const newlyFinishedByDate = {};
+      finishedMatches.forEach(match => {
         const score = match.score?.fullTime;
-        if(!score || score.home === null || score.away === null) continue;
+        if(!score || score.home===null || score.away===null) return;
+        const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
+        const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
+        const etDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
+        if(currentResults[`${etDate}|${home}`]) return; // already logged
+        if(!newlyFinishedByDate[etDate]) newlyFinishedByDate[etDate] = [];
+        newlyFinishedByDate[etDate].push({match, home, away, etDate});
+      });
 
-        // Convert date to ET pick date
-        const utcDate = match.utcDate; // e.g. "2026-06-11T19:00:00Z"
-        const etDate = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(new Date(utcDate));
+      if(Object.keys(newlyFinishedByDate).length === 0) return;
 
-        const rawHome = match.homeTeam?.name || "";
-        const rawAway = match.awayTeam?.name || "";
-        const home = TEAM_NAME_MAP[rawHome] || rawHome;
-        const away = TEAM_NAME_MAP[rawAway] || rawAway;
+      const active = currentPlayers.filter(p=>!p.eliminated&&p.lives>0);
+      let didAnything = false;
 
-        // Check if already logged
-        const alreadyLogged = currentResults[`${etDate}|${home}`] || currentResults[`${etDate}|${away}`];
-        if(alreadyLogged) continue;
+      for(const [etDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
+        // Step 1: Log results for all newly finished matches this date
+        const updatedResults = {...currentResults};
+        for(const {match, home, away, etDate:pd} of dayMatches) {
+          const score = match.score.fullTime;
+          const isDraw = score.home === score.away;
+          const winTeam = isDraw ? home : score.home > score.away ? home : away;
+          const loseTeam = isDraw ? away : score.home > score.away ? away : home;
+          console.log(`Auto-logging: ${home} ${score.home}-${score.away} ${away} on ${pd}`);
+          const rows = isDraw
+            ? [{pick_date:pd,team:"Draw",outcome:"draw_correct"},{pick_date:pd,team:home,outcome:"draw_wrong"},{pick_date:pd,team:away,outcome:"draw_wrong"}]
+            : [{pick_date:pd,team:winTeam,outcome:"win"},{pick_date:pd,team:loseTeam,outcome:"lose"},{pick_date:pd,team:"Draw",outcome:"draw_wrong"}];
+          await supabase.from("results").upsert(rows,{onConflict:"pick_date,team"});
+          rows.forEach(r => { updatedResults[`${pd}|${r.team}`] = r.outcome; });
+          didAnything = true;
+        }
 
-        // Determine winner
-        const homeScore = score.home;
-        const awayScore = score.away;
-        const isDraw = homeScore === awayScore;
-        const winTeam = isDraw ? home : homeScore > awayScore ? home : away;
-        const loseTeam = isDraw ? away : homeScore > awayScore ? away : home;
+        // Step 2: Check who's wrong so far for this pick day
+        const dayStillPlaying = datesStillPlaying.has(etDate);
+        const dayHasPending = datesWithPendingMatches.has(etDate);
+        const dayFullyDone = !dayStillPlaying && !dayHasPending;
 
-        console.log(`Auto-logging: ${home} ${homeScore}-${awayScore} ${away} on ${etDate}`);
-
-        // Log the result
-        const rows = isDraw
-          ? [{pick_date:etDate,team:"Draw",outcome:"draw_correct"},{pick_date:etDate,team:home,outcome:"draw_wrong"},{pick_date:etDate,team:away,outcome:"draw_wrong"}]
-          : [{pick_date:etDate,team:winTeam,outcome:"win"},{pick_date:etDate,team:loseTeam,outcome:"lose"},{pick_date:etDate,team:"Draw",outcome:"draw_wrong"}];
-
-        await supabase.from("results").upsert(rows, {onConflict:"pick_date,team"});
-
-        // Check Midda's Law
-        const active = currentPlayers.filter(p=>!p.eliminated&&p.lives>0);
-        const losers = active.filter(p=>{
+        // Find everyone's outcome for this pick day
+        const playersWrong = active.filter(p => {
           const dp = getDayPick(p, etDate);
-          if(!dp) return true;
-          return isDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw");
+          if(!dp) return true; // no pick = wrong
+          const outcome = updatedResults[`${etDate}|${dp.choice}`];
+          if(!outcome) return null; // match not finished yet — unknown
+          return outcome === "lose" || outcome === "draw_wrong";
         });
-        if(losers.length===active.length&&active.length>0) {
-          console.log("Midda's Law — no lives lost for", etDate);
-          continue;
-        }
 
-        // Update lives
-        const updates = [];
-        for(const p of active){
+        const playersCorrect = active.filter(p => {
           const dp = getDayPick(p, etDate);
-          const lost = !dp || (isDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw"));
-          if(lost){ const nl=p.lives-1; updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id)); }
+          if(!dp) return false;
+          const outcome = updatedResults[`${etDate}|${dp.choice}`];
+          return outcome === "win" || outcome === "draw_correct";
+        });
+
+        const playersUnknown = active.filter(p => {
+          const dp = getDayPick(p, etDate);
+          if(!dp) return false;
+          const outcome = updatedResults[`${etDate}|${dp.choice}`];
+          return !outcome; // their match hasn't finished yet
+        });
+
+        // Step 3: Decide whether to update lives now or wait
+        const middasPossible = playersCorrect.length === 0; // nobody correct yet
+
+        if(dayFullyDone) {
+          // All matches done — do final Midda's check
+          if(playersWrong.length === active.length && active.length > 0) {
+            console.log(`Midda's Law — everyone wrong on ${etDate}, no lives lost`);
+          } else {
+            // Update lives for everyone wrong
+            const updates = playersWrong.map(p => {
+              const nl = p.lives - 1;
+              return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
+            });
+            if(updates.length > 0) await Promise.all(updates);
+          }
+        } else if(!middasPossible) {
+          // At least one person is correct — Midda's impossible
+          // Update lives for wrong players whose match has finished (playersUnknown still waiting)
+          const definitelyWrong = playersWrong; // these have a finished result and it's wrong
+          const updates = definitelyWrong.map(p => {
+            const nl = p.lives - 1;
+            return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
+          });
+          if(updates.length > 0) await Promise.all(updates);
+        } else {
+          // Midda's Law still possible — don't update lives yet, wait for remaining matches
+          console.log(`Midda's Law still possible on ${etDate} — holding lives update`);
         }
-        await Promise.all(updates);
       }
 
-      // Reload data after processing
-      if(matches.length > 0) loadAll(false);
+      if(didAnything) loadAll(false);
     } catch(e) {
       console.error("Auto results error:", e);
     }
@@ -827,8 +881,7 @@ export default function App() {
     try {
       // Get group standings from API
       const res = await fetch(
-        "https://api.football-data.org/v4/competitions/WC/standings",
-        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+        "/.netlify/functions/fdorg?path=competitions/WC/standings"
       );
       if(!res.ok) return;
       const data = await res.json();
@@ -928,8 +981,7 @@ export default function App() {
       // Now handle R16/QF/SF/Final from knockout results
       // Get finished knockout matches from API
       const koRes = await fetch(
-        "https://api.football-data.org/v4/competitions/WC/matches?stage=LAST_16,QUARTER_FINALS,SEMI_FINALS,FINAL&status=FINISHED",
-        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+        "/.netlify/functions/fdorg?path=competitions/WC/matches?stage=LAST_16,QUARTER_FINALS,SEMI_FINALS,FINAL&status=FINISHED"
       );
       if(koRes.ok) {
         const koData = await koRes.json();
@@ -1015,8 +1067,7 @@ export default function App() {
   const fetchLiveScores = useCallback(async () => {
     try {
       const res = await fetch(
-        "https://api.football-data.org/v4/competitions/WC/matches?status=IN_PLAY,PAUSED,HALFTIME",
-        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+        "/.netlify/functions/fdorg?path=competitions/WC/matches?status=IN_PLAY,PAUSED,HALFTIME"
       );
       if(!res.ok) return;
       const data = await res.json();
@@ -1036,8 +1087,7 @@ export default function App() {
 
       // Also grab today's FINISHED matches for final scores
       const resF = await fetch(
-        "https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED",
-        { headers: { "X-Auth-Token": FDORG_TOKEN } }
+        "/.netlify/functions/fdorg?path=competitions/WC/matches?status=FINISHED"
       );
       if(resF.ok) {
         const dataF = await resF.json();
