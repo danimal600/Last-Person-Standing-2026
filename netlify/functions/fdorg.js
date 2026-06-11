@@ -2,14 +2,18 @@ const FDORG_TOKEN = "73804200936a4d86acaed8a91a7801ad";
 const BASE = "https://api.football-data.org/v4";
 
 exports.handler = async (event) => {
-  const path = event.queryStringParameters?.path || "";
-  
-  // Reconstruct the full URL — the path param may contain & which gets split
-  // so we need to use the raw query string
   const rawQuery = event.rawQuery || "";
-  const fullPath = rawQuery.replace(/^path=/, "");
-  const url = `${BASE}/${decodeURIComponent(fullPath)}`;
-
+  let fullPath = decodeURIComponent(rawQuery.replace(/^path=/, ""));
+  
+  // Always add season=2026 for WC competition to ensure we get 2026 data
+  if(fullPath.includes("competitions/WC")) {
+    const separator = fullPath.includes("?") ? "&" : "?";
+    if(!fullPath.includes("season=")) {
+      fullPath += `${separator}season=2026`;
+    }
+  }
+  
+  const url = `${BASE}/${fullPath}`;
   console.log("Fetching:", url);
 
   try {
@@ -21,8 +25,7 @@ exports.handler = async (event) => {
     });
     
     const text = await res.text();
-    console.log("Response status:", res.status);
-    console.log("Response preview:", text.slice(0, 200));
+    console.log("Response status:", res.status, "| Preview:", text.slice(0, 300));
     
     return {
       statusCode: res.status,
