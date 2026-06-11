@@ -376,7 +376,7 @@ export default function App() {
   }, []); // eslint-disable-line
 
   useEffect(() => { loadAll(true); }, [loadAll]);
-  useEffect(() => { const i=setInterval(()=>loadAll(false),30000); return()=>clearInterval(i); }, [loadAll]);
+  useEffect(() => { const i=setInterval(()=>loadAll(false),60000); return()=>clearInterval(i); }, [loadAll]);
   useEffect(() => { try { activeId ? localStorage.setItem("lps_activeId",String(activeId)) : localStorage.removeItem("lps_activeId"); } catch {} }, [activeId]);
 
   // ── POPUP ENGINE ─────────────────────────────────────────────────────────
@@ -653,7 +653,7 @@ export default function App() {
       const finishedMatches = data.matches || [];
 
       // Fetch in-progress/scheduled matches to know if a day is fully done
-      const resLive = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DIN_PLAY%2CPAUSED%2CHALFTIME%2CSCHEDULED%2CTIMED");
+      const resLive = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DSCHEDULED");
       const liveData = resLive.ok ? await resLive.json() : {matches:[]};
       const notFinished = liveData.matches || [];
 
@@ -774,7 +774,7 @@ export default function App() {
   useEffect(() => {
     const run = () => checkAutoResults(results, players);
     run();
-    const i = setInterval(run, 5 * 60 * 1000);
+    const i = setInterval(run, 10 * 60 * 1000);
     return () => clearInterval(i);
   }, [results, players, checkAutoResults]);
 
@@ -1063,47 +1063,39 @@ export default function App() {
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
-  // ── LIVE SCORES — polls every 60s for in-progress matches ────────────
+  // ── LIVE SCORES — single call for today's matches, polls every 60s ──────
   const fetchLiveScores = useCallback(async () => {
     try {
-      const res = await fetch(
-        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DIN_PLAY%2CPAUSED%2CHALFTIME"
-      );
-      if(!res.ok) return;
-      const data = await res.json();
-      const scores = {};
-      (data.matches||[]).forEach(m => {
-        const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
-        const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
-        const key = `${home}|${away}`;
-        scores[key] = {
-          home, away,
-          homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
-          awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
-          minute: m.minute || null,
-          status: m.status, // IN_PLAY, PAUSED, HALFTIME
-        };
-      });
+      // One call for today's ET date — returns all matches regardless of status
+      const etToday = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(new Date());
+      const etYesterday = new Date(Date.now() - 86400000);
+      const etYesterdayStr = new Intl.DateTimeFormat("en-CA", {timeZone:"America/New_York"}).format(etYesterday);
 
-      // Grab ALL recent finished matches (last 2 days) for final scores
-      const resF = await fetch(
-        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DFINISHED"
-      );
-      if(resF.ok) {
-        const dataF = await resF.json();
-        const twoDaysAgo = new Date(Date.now() - 2*24*3600*1000);
-        (dataF.matches||[]).filter(m => new Date(m.utcDate) >= twoDaysAgo
-        ).forEach(m => {
+      const scores = {};
+
+      // Fetch today's matches
+      for(const dateStr of [etYesterdayStr, etToday]) {
+        const res = await fetch(
+          `/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3FdateFrom%3D${dateStr}%26dateTo%3D${dateStr}`
+        );
+        if(!res.ok) continue;
+        const data = await res.json();
+        (data.matches||[]).forEach(m => {
           const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
           const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
           const key = `${home}|${away}`;
-          scores[key] = {
-            home, away,
-            homeScore: m.score?.fullTime?.home ?? 0,
-            awayScore: m.score?.fullTime?.away ?? 0,
-            minute: 90,
-            status: "FINISHED",
-          };
+          const status = m.status;
+          const isLiveStatus = ["IN_PLAY","PAUSED","HALFTIME"].includes(status);
+          const isDone = status === "FINISHED";
+          if(isLiveStatus || isDone) {
+            scores[key] = {
+              home, away,
+              homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
+              awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
+              minute: m.minute || null,
+              status,
+            };
+          }
         });
       }
 
@@ -1115,7 +1107,7 @@ export default function App() {
 
   useEffect(() => {
     fetchLiveScores();
-    const i = setInterval(fetchLiveScores, 60000);
+    const i = setInterval(fetchLiveScores, 60000); // every 60s — only 2 API calls per minute
     return () => clearInterval(i);
   }, [fetchLiveScores]);
 
