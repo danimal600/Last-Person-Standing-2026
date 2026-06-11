@@ -647,13 +647,13 @@ export default function App() {
   const checkAutoResults = useCallback(async (currentResults, currentPlayers) => {
     try {
       // Fetch finished matches
-      const res = await fetch("/.netlify/functions/fdorg?path=competitions/WC/matches?status=FINISHED");
+      const res = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DFINISHED");
       if(!res.ok) return;
       const data = await res.json();
       const finishedMatches = data.matches || [];
 
       // Fetch in-progress/scheduled matches to know if a day is fully done
-      const resLive = await fetch("/.netlify/functions/fdorg?path=competitions/WC/matches?status=IN_PLAY,PAUSED,HALFTIME,SCHEDULED,TIMED");
+      const resLive = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DIN_PLAY%2CPAUSED%2CHALFTIME%2CSCHEDULED%2CTIMED");
       const liveData = resLive.ok ? await resLive.json() : {matches:[]};
       const notFinished = liveData.matches || [];
 
@@ -881,7 +881,7 @@ export default function App() {
     try {
       // Get group standings from API
       const res = await fetch(
-        "/.netlify/functions/fdorg?path=competitions/WC/standings"
+        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fstandings"
       );
       if(!res.ok) return;
       const data = await res.json();
@@ -981,7 +981,7 @@ export default function App() {
       // Now handle R16/QF/SF/Final from knockout results
       // Get finished knockout matches from API
       const koRes = await fetch(
-        "/.netlify/functions/fdorg?path=competitions/WC/matches?stage=LAST_16,QUARTER_FINALS,SEMI_FINALS,FINAL&status=FINISHED"
+        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstage%3DLAST_16%2CQUARTER_FINALS%2CSEMI_FINALS%2CFINAL%26status%3DFINISHED"
       );
       if(koRes.ok) {
         const koData = await koRes.json();
@@ -1067,7 +1067,7 @@ export default function App() {
   const fetchLiveScores = useCallback(async () => {
     try {
       const res = await fetch(
-        "/.netlify/functions/fdorg?path=competitions/WC/matches?status=IN_PLAY,PAUSED,HALFTIME"
+        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DIN_PLAY%2CPAUSED%2CHALFTIME"
       );
       if(!res.ok) return;
       const data = await res.json();
@@ -1087,7 +1087,7 @@ export default function App() {
 
       // Also grab today's FINISHED matches for final scores
       const resF = await fetch(
-        "/.netlify/functions/fdorg?path=competitions/WC/matches?status=FINISHED"
+        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DFINISHED"
       );
       if(resF.ok) {
         const dataF = await resF.json();
