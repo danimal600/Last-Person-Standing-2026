@@ -737,7 +737,12 @@ export default function App() {
         // Step 3: Decide whether to update lives now or wait
         const middasPossible = playersCorrect.length === 0; // nobody correct yet
 
-        if(dayFullyDone) {
+        // Check if lives have already been processed for this pick day
+        const livesAlreadyProcessed = !!currentResults[`${etDate}|__lives_done__`];
+
+        if(livesAlreadyProcessed) {
+          console.log(`Lives already processed for ${etDate} — skipping`);
+        } else if(dayFullyDone) {
           // All matches done — do final Midda's check
           if(playersWrong.length === active.length && active.length > 0) {
             console.log(`Midda's Law — everyone wrong on ${etDate}, no lives lost`);
@@ -749,6 +754,12 @@ export default function App() {
             });
             if(updates.length > 0) await Promise.all(updates);
           }
+          // Mark this pick day as fully processed so we never touch lives for it again
+          await supabase.from("results").upsert(
+            [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
+            {onConflict:"pick_date,team"}
+          );
+          updatedResults[`${etDate}|__lives_done__`] = "done";
         } else if(!middasPossible) {
           // At least one person is correct — Midda's impossible
           // Update lives for wrong players whose match has finished (playersUnknown still waiting)
@@ -758,6 +769,12 @@ export default function App() {
             return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
           });
           if(updates.length > 0) await Promise.all(updates);
+          // Mark this pick day as fully processed — remaining matches won't trigger further deductions
+          await supabase.from("results").upsert(
+            [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
+            {onConflict:"pick_date,team"}
+          );
+          updatedResults[`${etDate}|__lives_done__`] = "done";
         } else {
           // Midda's Law still possible — don't update lives yet, wait for remaining matches
           console.log(`Midda's Law still possible on ${etDate} — holding lives update`);
@@ -1739,52 +1756,53 @@ export default function App() {
 
   // FIFA Rankings - April 1 2026 official update, all 48 WC teams
   const FIFA_RANKINGS = [
-    {rank:1,  team:"France",           flag:"🇫🇷"},
+    {rank:1,  team:"Argentina",        flag:"🇦🇷"},
     {rank:2,  team:"Spain",            flag:"🇪🇸"},
-    {rank:3,  team:"Argentina",        flag:"🇦🇷"},
+    {rank:3,  team:"France",           flag:"🇫🇷"},
     {rank:4,  team:"England",          flag:"🏴󠁧󠁢󠁥󠁮󠁧󠁿"},
     {rank:5,  team:"Portugal",         flag:"🇵🇹"},
     {rank:6,  team:"Brazil",           flag:"🇧🇷"},
-    {rank:7,  team:"Netherlands",      flag:"🇳🇱"},
-    {rank:8,  team:"Morocco",          flag:"🇲🇦"},
+    {rank:7,  team:"Morocco",          flag:"🇲🇦"},
+    {rank:8,  team:"Netherlands",      flag:"🇳🇱"},
     {rank:9,  team:"Belgium",          flag:"🇧🇪"},
     {rank:10, team:"Germany",          flag:"🇩🇪"},
     {rank:11, team:"Croatia",          flag:"🇭🇷"},
     {rank:13, team:"Colombia",         flag:"🇨🇴"},
-    {rank:14, team:"Senegal",          flag:"🇸🇳"},
-    {rank:15, team:"Mexico",           flag:"🇲🇽"},
-    {rank:16, team:"USA",              flag:"🇺🇸"},
-    {rank:17, team:"Uruguay",          flag:"🇺🇾"},
+    {rank:14, team:"Mexico",           flag:"🇲🇽"},
+    {rank:15, team:"Senegal",          flag:"🇸🇳"},
+    {rank:16, team:"Uruguay",          flag:"🇺🇾"},
+    {rank:17, team:"USA",              flag:"🇺🇸"},
     {rank:18, team:"Japan",            flag:"🇯🇵"},
     {rank:19, team:"Switzerland",      flag:"🇨🇭"},
     {rank:21, team:"Iran",             flag:"🇮🇷"},
-    {rank:23, team:"Austria",          flag:"🇦🇹"},
-    {rank:24, team:"Ecuador",          flag:"🇪🇨"},
+    {rank:22, team:"Turkiye",          flag:"🇹🇷"},
+    {rank:23, team:"Ecuador",          flag:"🇪🇨"},
+    {rank:24, team:"Austria",          flag:"🇦🇹"},
     {rank:25, team:"South Korea",      flag:"🇰🇷"},
-    {rank:26, team:"Australia",        flag:"🇦🇺"},
+    {rank:27, team:"Australia",        flag:"🇦🇺"},
+    {rank:28, team:"Algeria",          flag:"🇩🇿"},
     {rank:29, team:"Egypt",            flag:"🇪🇬"},
     {rank:30, team:"Canada",           flag:"🇨🇦"},
+    {rank:31, team:"Norway",           flag:"🇳🇴"},
     {rank:33, team:"Ivory Coast",      flag:"🇨🇮"},
-    {rank:35, team:"Qatar",            flag:"🇶🇦"},
-    {rank:36, team:"Algeria",          flag:"🇩🇿"},
-    {rank:39, team:"Sweden",           flag:"🇸🇪"},
-    {rank:40, team:"Tunisia",          flag:"🇹🇳"},
-    {rank:41, team:"Czechia",          flag:"🇨🇿"},
-    {rank:42, team:"Turkiye",          flag:"🇹🇷"},
-    {rank:44, team:"Norway",           flag:"🇳🇴"},
-    {rank:47, team:"Scotland",         flag:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
-    {rank:51, team:"DR Congo",         flag:"🇨🇩"},
-    {rank:52, team:"Bosnia & Herz.",   flag:"🇧🇦"},
-    {rank:53, team:"Panama",           flag:"🇵🇦"},
-    {rank:57, team:"Saudi Arabia",     flag:"🇸🇦"},
+    {rank:34, team:"Panama",           flag:"🇵🇦"},
+    {rank:38, team:"Sweden",           flag:"🇸🇪"},
+    {rank:39, team:"Czechia",          flag:"🇨🇿"},
+    {rank:40, team:"Paraguay",         flag:"🇵🇾"},
+    {rank:42, team:"Scotland",         flag:"🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
+    {rank:45, team:"DR Congo",         flag:"🇨🇩"},
+    {rank:46, team:"Tunisia",          flag:"🇹🇳"},
+    {rank:51, team:"Uzbekistan",       flag:"🇺🇿"},
+    {rank:56, team:"Iraq",             flag:"🇮🇶"},
+    {rank:57, team:"Qatar",            flag:"🇶🇦"},
     {rank:60, team:"South Africa",     flag:"🇿🇦"},
-    {rank:61, team:"Iraq",             flag:"🇮🇶"},
-    {rank:63, team:"Ghana",            flag:"🇬🇭"},
-    {rank:68, team:"Jordan",           flag:"🇯🇴"},
-    {rank:69, team:"Haiti",            flag:"🇭🇹"},
-    {rank:72, team:"Uzbekistan",       flag:"🇺🇿"},
-    {rank:75, team:"Cape Verde",       flag:"🇨🇻"},
-    {rank:76, team:"Curacao",          flag:"🇨🇼"},
+    {rank:61, team:"Saudi Arabia",     flag:"🇸🇦"},
+    {rank:63, team:"Jordan",           flag:"🇯🇴"},
+    {rank:64, team:"Bosnia & Herz.",   flag:"🇧🇦"},
+    {rank:67, team:"Cape Verde",       flag:"🇨🇻"},
+    {rank:73, team:"Ghana",            flag:"🇬🇭"},
+    {rank:82, team:"Curacao",          flag:"🇨🇼"},
+    {rank:83, team:"Haiti",            flag:"🇭🇹"},
     {rank:85, team:"New Zealand",      flag:"🇳🇿"},
   ];
 
