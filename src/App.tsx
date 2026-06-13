@@ -643,7 +643,7 @@ export default function App() {
     "Austria":"Austria","Jordan":"Jordan","Portugal":"Portugal","DR Congo":"DR Congo",
     "Congo DR":"DR Congo","England":"England","Croatia":"Croatia","Ghana":"Ghana",
     "Panama":"Panama","Uzbekistan":"Uzbekistan","Colombia":"Colombia",
-    "South Korea":"South Korea","Bosnia & Herzegovina":"Bosnia & Herz.",
+    "South Korea":"South Korea","Bosnia & Herzegovina":"Bosnia & Herz.","Bosnia-Herzegovina":"Bosnia & Herz.",
   };
 
   const autoResultsRef = useRef(false);
@@ -684,8 +684,14 @@ export default function App() {
         const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
         const etDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
         if(currentResults[`${etDate}|${home}`]) return; // already logged
+        // Find OUR app's match id for this fixture (needed for the Draw#<id> sentinel key)
+        const ourMatch = GROUP_MATCHES.find(m => m.etDate===etDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
+          || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
+              const f = koFixtures[s.id];
+              return (f.home===home&&f.away===away)||(f.home===away&&f.away===home);
+            });
         if(!newlyFinishedByDate[etDate]) newlyFinishedByDate[etDate] = [];
-        newlyFinishedByDate[etDate].push({match, home, away, etDate});
+        newlyFinishedByDate[etDate].push({match, home, away, etDate, ourMatchId: ourMatch?.id});
       });
 
       if(Object.keys(newlyFinishedByDate).length === 0) return;
@@ -696,13 +702,15 @@ export default function App() {
       for(const [etDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
         // Step 1: Log results for all newly finished matches this date
         const updatedResults = {...currentResults};
-        for(const {match, home, away, etDate:pd} of dayMatches) {
+        for(const {match, home, away, etDate:pd, ourMatchId} of dayMatches) {
           const score = match.score.fullTime;
           const isDraw = score.home === score.away;
           const winTeam = isDraw ? home : score.home > score.away ? home : away;
           const loseTeam = isDraw ? away : score.home > score.away ? away : home;
-          const drawKey = `Draw#${match.id ?? match.matchId ?? ""}`; // match-specific Draw sentinel
-          console.log(`Auto-logging: ${home} ${score.home}-${score.away} ${away} on ${pd}`);
+          // Use OUR app's match id for the Draw sentinel — must match what pickOutcomeForMatch looks up.
+          // Fall back to the API match id only if we couldn't resolve our own (shouldn't normally happen).
+          const drawKey = `Draw#${ourMatchId ?? match.id ?? match.matchId ?? ""}`;
+          console.log(`Auto-logging: ${home} ${score.home}-${score.away} ${away} on ${pd} (ourMatchId=${ourMatchId})`);
           const rows = isDraw
             ? [{pick_date:pd,team:drawKey,outcome:"draw_correct"},{pick_date:pd,team:home,outcome:"draw_wrong"},{pick_date:pd,team:away,outcome:"draw_wrong"}]
             : [{pick_date:pd,team:winTeam,outcome:"win"},{pick_date:pd,team:loseTeam,outcome:"lose"},{pick_date:pd,team:drawKey,outcome:"draw_wrong"}];
