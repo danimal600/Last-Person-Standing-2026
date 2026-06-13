@@ -121,8 +121,12 @@ const KNOCKOUT_SLOTS = [
   { id:104, etDate:"2026-07-19", slot:"FINAL",  phase:"FREE",    kickoffET:"15:00" },
 ].map(m => {
   const { bst } = etToBst(m.kickoffET);
-  const [bh] = bst.split(":").map(Number);
-  const earlyHours = bh < 8;
+  const [etH] = m.kickoffET.split(":").map(Number);
+  // Only roll back to previous pick-day if the ET kickoff itself is in the
+  // early hours (i.e. genuinely a "overnight" match like 00:00 ET), matching
+  // the rule used for GROUP_MATCHES. A normal evening ET kickoff (e.g. 20:00)
+  // that lands after midnight BST should NOT be rolled back.
+  const earlyHours = etH < 6;
   const pickDate = earlyHours ? prevDateStr(m.etDate) : m.etDate;
   return { ...m, pickDate, kickoffBST: bst, earlyHours };
 });
@@ -697,10 +701,11 @@ export default function App() {
           const isDraw = score.home === score.away;
           const winTeam = isDraw ? home : score.home > score.away ? home : away;
           const loseTeam = isDraw ? away : score.home > score.away ? away : home;
+          const drawKey = `Draw#${match.id ?? match.matchId ?? ""}`; // match-specific Draw sentinel
           console.log(`Auto-logging: ${home} ${score.home}-${score.away} ${away} on ${pd}`);
           const rows = isDraw
-            ? [{pick_date:pd,team:"Draw",outcome:"draw_correct"},{pick_date:pd,team:home,outcome:"draw_wrong"},{pick_date:pd,team:away,outcome:"draw_wrong"}]
-            : [{pick_date:pd,team:winTeam,outcome:"win"},{pick_date:pd,team:loseTeam,outcome:"lose"},{pick_date:pd,team:"Draw",outcome:"draw_wrong"}];
+            ? [{pick_date:pd,team:drawKey,outcome:"draw_correct"},{pick_date:pd,team:home,outcome:"draw_wrong"},{pick_date:pd,team:away,outcome:"draw_wrong"}]
+            : [{pick_date:pd,team:winTeam,outcome:"win"},{pick_date:pd,team:loseTeam,outcome:"lose"},{pick_date:pd,team:drawKey,outcome:"draw_wrong"}];
           await supabase.from("results").upsert(rows,{onConflict:"pick_date,team"});
           rows.forEach(r => { updatedResults[`${pd}|${r.team}`] = r.outcome; });
           didAnything = true;
@@ -1127,7 +1132,10 @@ export default function App() {
     const choice = player.picks[String(matchId)];
     const locked = isLocked(pickDate);
     if (!choice) return locked ? "locked_nopick" : "future";
-    const r = results[`${pickDate}|${choice}`];
+    // "Draw" is not a real team — make the result lookup match-specific so a draw
+    // on ONE match doesn't mark a "Draw" pick on a DIFFERENT match (same pick-day) as correct.
+    const lookupKey = choice === "Draw" ? `Draw#${matchId}` : choice;
+    const r = results[`${pickDate}|${lookupKey}`];
     if (!r) return locked ? "pending" : "future";
     return (r==="win"||r==="draw_correct") ? "correct" : (r==="lose"||r==="draw_wrong") ? "wrong" : "pending";
   }
@@ -1199,20 +1207,20 @@ export default function App() {
     return null;
   }
 
-  async function logResult(pickDate, winTeam, loseTeam, wasDraw) {
+  async function logResult(pickDate, matchId, winTeam, loseTeam, wasDraw) {
+    const drawKey = `Draw#${matchId}`;
     const rows = wasDraw
-      ? [{pick_date:pickDate,team:"Draw",outcome:"draw_correct"},{pick_date:pickDate,team:winTeam,outcome:"draw_wrong"},{pick_date:pickDate,team:loseTeam,outcome:"draw_wrong"}]
-      : [{pick_date:pickDate,team:winTeam,outcome:"win"},{pick_date:pickDate,team:loseTeam,outcome:"lose"},{pick_date:pickDate,team:"Draw",outcome:"draw_wrong"}];
+      ? [{pick_date:pickDate,team:drawKey,outcome:"draw_correct"},{pick_date:pickDate,team:winTeam,outcome:"draw_wrong"},{pick_date:pickDate,team:loseTeam,outcome:"draw_wrong"}]
+      : [{pick_date:pickDate,team:winTeam,outcome:"win"},{pick_date:pickDate,team:loseTeam,outcome:"lose"},{pick_date:pickDate,team:drawKey,outcome:"draw_wrong"}];
     await supabase.from("results").upsert(rows,{onConflict:"pick_date,team"});
 
-    // Get all matches on this day to find who picked what
-    const dayMatches = getMatchesForPickDate(pickDate);
     const active = players.filter(p=>!p.eliminated&&p.lives>0);
 
-    // Who loses a life? Anyone whose pick on any match this day matches the loser
+    // Who loses a life? Only players whose pick was FOR THIS MATCH and was wrong.
     const losers = active.filter(p => {
       const dp = getDayPick(p, pickDate);
       if (!dp) return true; // no pick = Howard's law = lose a life
+      if (String(dp.matchId) !== String(matchId)) return false; // picked a different match this day — not affected by this result
       return wasDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw");
     });
 
@@ -1222,10 +1230,8 @@ export default function App() {
     }
 
     const updates = [];
-    for(const p of active){
-      const dp = getDayPick(p, pickDate);
-      const lost = !dp || (wasDraw ? dp.choice!=="Draw" : (dp.choice===loseTeam||dp.choice==="Draw"));
-      if(lost){ const nl=p.lives-1; updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id)); }
+    for(const p of losers){
+      const nl=p.lives-1; updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id));
     }
     await Promise.all(updates);
     toast_("success","Result logged. Lives updated.");
@@ -1290,21 +1296,30 @@ export default function App() {
     const isLive = live && (live.status==="IN_PLAY"||live.status==="PAUSED"||live.status==="HALFTIME");
     const isFinished = live && live.status==="FINISHED";
 
+    // Fallback: if liveScores hasn't picked this match up yet (polling gap) but our
+    // own results table already has an outcome for it, still show it as finished.
+    const drawKey = `Draw#${m.id}`;
+    const resultKnown = !live && m.home && m.away && (
+      results[`${m.pickDate}|${m.home}`] || results[`${m.pickDate}|${m.away}`] || results[`${m.pickDate}|${drawKey}`]
+    );
+    const isFinishedFallback = isFinished || !!resultKnown;
+
     return (
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinished?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,gap:8,flexWrap:"nowrap"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinishedFallback?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,gap:8,flexWrap:"nowrap"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {m.group&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>Grp {m.group}</span>}
           {m.slot&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>{slotLabel(m.slot)}</span>}
           {isLive&&<span style={{background:"rgba(220,30,30,0.9)",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:1,flexShrink:0}}>🔴 {live.minute?live.minute+"'":"LIVE"}</span>}
-          {isFinished&&<span style={{...pill("muted"),fontSize:9,flexShrink:0}}>FT</span>}
+          {isFinishedFallback&&<span style={{...pill("muted"),fontSize:9,flexShrink:0}}>FT</span>}
         </div>
         <div style={{flex:1,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>
           {m.home?`${f(m.home)} ${m.home}`:"TBD"}
           {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{live.homeScore}–{live.awayScore}</span>}
-          {!(isLive||isFinished)&&<span style={{color:T.muted}}> vs </span>}
+          {!isLive&&!isFinished&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
+          {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
           {m.away?`${f(m.away)} ${m.away}`:"TBD"}
         </div>
-        <span style={{fontSize:11,color:isLive?T.red:T.muted,flexShrink:0,marginLeft:4}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinished?"":fmtBST(m.kickoffBST)+" BST"}</span>
+        <span style={{fontSize:11,color:isLive?T.red:T.muted,flexShrink:0,marginLeft:4}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinishedFallback?"":fmtBST(m.kickoffBST)+" BST"}</span>
       </div>
     );
   }
@@ -1984,9 +1999,9 @@ export default function App() {
                       <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{f(m.home)} {m.home} vs {f(m.away)} {m.away} · {fmtBST(m.kickoffBST)} BST</div>
                       {logged?<span style={pill("green")}>✓ {logged==="auto"?"🤖 Auto-logged":"Result logged"}</span>:(
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
-                          <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.home,m.away,false)}>{f(m.home)} {m.home} won</button>
-                          <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.away,m.home,false)}>{f(m.away)} {m.away} won</button>
-                          {!m.isKnockout&&<button style={{...btn(),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.home,m.away,true)}>⚖️ Draw</button>}
+                          <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.id,m.home,m.away,false)}>{f(m.home)} {m.home} won</button>
+                          <button style={{...btn("green"),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.id,m.away,m.home,false)}>{f(m.away)} {m.away} won</button>
+                          {!m.isKnockout&&<button style={{...btn(),fontSize:12,padding:"6px 12px"}} onClick={()=>logResult(pickDate,m.id,m.home,m.away,true)}>⚖️ Draw</button>}
                         </div>
                       )}
                       <div style={{fontSize:11,color:T.muted}}>{f(m.home)} {pH.map(p=>p.name).join(", ")||"nobody"} · {f(m.away)} {pA.map(p=>p.name).join(", ")||"nobody"}{!m.isKnockout&&` · Draw: ${pD.map(p=>p.name).join(", ")||"nobody"}`}</div>
