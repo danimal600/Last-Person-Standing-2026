@@ -1968,7 +1968,7 @@ export default function App() {
       </div>
     );
 
-    const tabs=[["results","🏁 Results"],["players","👤 Players"],["fixtures","🔧 Fixtures"]];
+    const tabs=[["results","🏁 Results"],["players","👤 Players"],["fixtures","🔧 Fixtures"],["audit","🧮 Audit Lives"]];
     const pastDates=activeDates.filter(d=>isLocked(d));
     const selP = selectedPlayer ? players.find(p=>p.id===selectedPlayer) : null;
 
@@ -1983,6 +1983,68 @@ export default function App() {
       await supabase.from("players").update({name:n}).eq("id",pid);
       toast_("success","Name updated."); loadAll(false);
     }
+
+    // ── AUDIT: recompute every player's lives from scratch based on picks + results ──
+    function computeAuditResults() {
+      const STARTING_LIVES = 6;
+      const audit = {}; // pid -> { expectedLives, log: [...] }
+      players.forEach(p => { audit[p.id] = { expectedLives: STARTING_LIVES, log: [] }; });
+
+      for(const pickDate of pastDates) {
+        const dayMatches = getMatchesForPickDate(pickDate);
+        if(dayMatches.length===0) continue;
+
+        // Has every match on this pick-day been fully resolved in `results`?
+        const allResolved = dayMatches.every(m => {
+          const drawKey = `Draw#${m.id}`;
+          return results[`${pickDate}|${m.home}`] !== undefined
+              || results[`${pickDate}|${m.away}`] !== undefined
+              || results[`${pickDate}|${drawKey}`] !== undefined;
+        });
+        if(!allResolved) continue; // skip days not fully logged yet
+
+        for(const p of players) {
+          if(audit[p.id].expectedLives <= 0) continue; // already eliminated, skip further days
+
+          const dp = getDayPick(p, pickDate);
+          let wrong;
+          if(!dp) {
+            wrong = true; // Howard's Law — no pick = wrong
+          } else {
+            const choice = dp.choice;
+            const lookupKey = choice === "Draw" ? `Draw#${dp.matchId}` : choice;
+            const outcome = results[`${pickDate}|${lookupKey}`];
+            wrong = (outcome === "lose" || outcome === "draw_wrong");
+          }
+          audit[p.id].log.push({pickDate, dp, wrong});
+        }
+
+        // Midda's Law: if EVERY active player on this day is wrong, nobody loses a life
+        const activeThisDay = players.filter(p => audit[p.id].expectedLives > 0);
+        const allWrong = activeThisDay.length>0 && activeThisDay.every(p => {
+          const entry = audit[p.id].log[audit[p.id].log.length-1];
+          return entry && entry.pickDate===pickDate && entry.wrong;
+        });
+
+        if(allWrong) {
+          activeThisDay.forEach(p => {
+            const entry = audit[p.id].log[audit[p.id].log.length-1];
+            if(entry) entry.middasLaw = true;
+          });
+        } else {
+          activeThisDay.forEach(p => {
+            const entry = audit[p.id].log[audit[p.id].log.length-1];
+            if(entry && entry.wrong) {
+              audit[p.id].expectedLives -= 1;
+              entry.lifeLost = true;
+            }
+          });
+        }
+      }
+      return audit;
+    }
+
+
 
     return (
       <>
@@ -2150,6 +2212,59 @@ export default function App() {
             })}
           </div>
         )}
+
+        {tab==="audit"&&(()=>{
+          const audit = computeAuditResults();
+          const mismatches = players.filter(p => audit[p.id].expectedLives !== p.lives);
+          async function fixAll(){
+            for(const p of mismatches){
+              const exp = audit[p.id].expectedLives;
+              await supabase.from("players").update({lives:exp,eliminated:exp===0}).eq("id",p.id);
+            }
+            toast_("success",`Fixed ${mismatches.length} player${mismatches.length===1?"":"s"}.`);
+            loadAll(false);
+          }
+          return (
+          <div style={card}>
+            <div style={sec}>🧮 Audit Lives</div>
+            <p style={{color:T.muted,fontSize:12,marginBottom:14}}>Recomputes every player's lives from scratch using all logged results + picks, then compares to their current value in the database.</p>
+            {mismatches.length===0 ? (
+              <div style={{...pill("green"),fontSize:13}}>✓ All {players.length} players match expected lives.</div>
+            ) : (
+              <>
+                <div style={{...pill("amber"),fontSize:13,marginBottom:12}}>⚠️ {mismatches.length} mismatch{mismatches.length===1?"":"es"} found</div>
+                {mismatches.map(p=>(
+                  <div key={p.id} style={{background:"rgba(0,0,0,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{p.name}</div>
+                    <div style={{fontSize:12}}>
+                      Current: <span style={{color:T.red,fontWeight:700}}>{p.lives}</span>
+                      {" → "}
+                      Expected: <span style={{color:T.green,fontWeight:700}}>{audit[p.id].expectedLives}</span>
+                    </div>
+                  </div>
+                ))}
+                <button style={{...btn("amber"),marginTop:8}} onClick={fixAll}>Fix all {mismatches.length} player{mismatches.length===1?"":"s"}</button>
+              </>
+            )}
+            <details style={{marginTop:20}}>
+              <summary style={{cursor:"pointer",color:T.muted,fontSize:12}}>Show full audit log per player</summary>
+              <div style={{marginTop:10}}>
+                {players.map(p=>(
+                  <div key={p.id} style={{marginBottom:14}}>
+                    <div style={{fontWeight:700,fontSize:13,color:T.amber,marginBottom:4}}>{p.name} — current {p.lives}, expected {audit[p.id].expectedLives}</div>
+                    {audit[p.id].log.map((entry,i)=>(
+                      <div key={i} style={{fontSize:11,color:T.muted,paddingLeft:10}}>
+                        {fmtDate(entry.pickDate)}: {entry.dp?`picked ${entry.dp.choice}`:"no pick"} —{" "}
+                        {entry.middasLaw ? "⚖️ Midda's Law (saved)" : entry.wrong ? (entry.lifeLost?"❌ wrong, life lost":"❌ wrong") : "✅ correct"}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+          );
+        })()}
       </>
     );
   }
