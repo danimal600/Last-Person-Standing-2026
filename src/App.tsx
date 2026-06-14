@@ -655,16 +655,17 @@ export default function App() {
 
   const checkAutoResults = useCallback(async (currentResults, currentPlayers) => {
     try {
-      // Fetch finished matches
-      const res = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DFINISHED");
+      // Single unfiltered fetch — returns ALL matches with their individual status
+      // fields (FINISHED, IN_PLAY, PAUSED, HALFTIME, SCHEDULED, TIMED, etc). A
+      // status-filtered fetch (e.g. status=SCHEDULED) risks silently missing matches
+      // with a different "not started yet" status like TIMED, which previously caused
+      // pick-days to be marked "fully done" prematurely.
+      const res = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches");
       if(!res.ok) return;
       const data = await res.json();
-      const finishedMatches = data.matches || [];
-
-      // Fetch in-progress/scheduled matches to know if a day is fully done
-      const resLive = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstatus%3DSCHEDULED");
-      const liveData = resLive.ok ? await resLive.json() : {matches:[]};
-      const notFinished = liveData.matches || [];
+      const allMatches = data.matches || [];
+      const finishedMatches = allMatches.filter(m => m.status === "FINISHED");
+      const notFinished = allMatches.filter(m => m.status !== "FINISHED");
 
       // Build sets of "home|away" team-pairs that are currently live or still pending —
       // keyed by TEAMS rather than date, since an early-hours match (e.g. kickoff 00:00 ET)
@@ -679,8 +680,9 @@ export default function App() {
       const liveTeamPairs = new Set(
         notFinished.filter(m=>["IN_PLAY","PAUSED","HALFTIME"].includes(m.status)).flatMap(teamPairKeys)
       );
+      // "Pending" = anything not finished and not currently live (SCHEDULED, TIMED, etc)
       const pendingTeamPairs = new Set(
-        notFinished.filter(m=>["SCHEDULED","TIMED"].includes(m.status)).flatMap(teamPairKeys)
+        notFinished.filter(m=>!["IN_PLAY","PAUSED","HALFTIME"].includes(m.status)).flatMap(teamPairKeys)
       );
 
       // Group finished matches by ET pick date, skip already logged
