@@ -666,18 +666,21 @@ export default function App() {
       const liveData = resLive.ok ? await resLive.json() : {matches:[]};
       const notFinished = liveData.matches || [];
 
-      // Build a set of ET dates that still have matches in progress
-      const datesStillPlaying = new Set(
-        notFinished
-          .filter(m => ["IN_PLAY","PAUSED","HALFTIME"].includes(m.status))
-          .map(m => new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(m.utcDate)))
+      // Build sets of "home|away" team-pairs that are currently live or still pending —
+      // keyed by TEAMS rather than date, since an early-hours match (e.g. kickoff 00:00 ET)
+      // has a different `etDate` (API date) than its `pickDate` (rolled back to the
+      // previous day), so date-keyed sets would miss it when checking if a pick-day
+      // is "fully done".
+      const teamPairKeys = (m) => {
+        const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
+        const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
+        return [`${home}|${away}`, `${away}|${home}`];
+      };
+      const liveTeamPairs = new Set(
+        notFinished.filter(m=>["IN_PLAY","PAUSED","HALFTIME"].includes(m.status)).flatMap(teamPairKeys)
       );
-
-      // Build a set of ET dates that still have unstarted matches today or earlier
-      const datesWithPendingMatches = new Set(
-        notFinished
-          .filter(m => ["SCHEDULED","TIMED"].includes(m.status))
-          .map(m => new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(m.utcDate)))
+      const pendingTeamPairs = new Set(
+        notFinished.filter(m=>["SCHEDULED","TIMED"].includes(m.status)).flatMap(teamPairKeys)
       );
 
       // Group finished matches by ET pick date, skip already logged
@@ -735,9 +738,12 @@ export default function App() {
       );
 
       for(const etDate of datesToCheck) {
-        // Step 2: Check who's wrong so far for this pick day
-        const dayStillPlaying = datesStillPlaying.has(etDate);
-        const dayHasPending = datesWithPendingMatches.has(etDate);
+        // Step 2: Check who's wrong so far for this pick day.
+        // Check EVERY match belonging to this pick-day (including early-hours matches
+        // whose own etDate is the NEXT calendar day) by team-pair, not by date.
+        const dayMatchesAll = getMatchesForPickDate(etDate);
+        const dayStillPlaying = dayMatchesAll.some(m => liveTeamPairs.has(`${m.home}|${m.away}`));
+        const dayHasPending = dayMatchesAll.some(m => pendingTeamPairs.has(`${m.home}|${m.away}`));
         const dayFullyDone = !dayStillPlaying && !dayHasPending;
 
         // Find everyone's outcome for this pick day.
