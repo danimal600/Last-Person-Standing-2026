@@ -345,16 +345,15 @@ export default function App() {
   // Admin() is an inner function component, so it gets a NEW function
   // reference (and is remounted by React) every time App re-renders — e.g.
   // every 60s on the loadAll poll, or every 90s on the live-scores poll.
-  // If this state lived inside Admin(), it would silently reset (snapping
-  // back to the Results tab, losing the selected player) mid-edit. Living
-  // here in App means it survives those re-renders.
-  const [adminPw, setAdminPw] = useState("");
+  // Click/select-driven state (which tab, which player, dropdown choices)
+  // lives here so it survives those re-renders without snapping back.
+  // NOTE: typing fields (password, rename, fixtures) deliberately stay
+  // LOCAL to Admin() — lifting them would mean every keystroke triggers an
+  // App re-render, which remounts Admin and makes the input lose focus
+  // (you'd only be able to type one character at a time).
   const [adminTab, setAdminTab] = useState("results");
-  const [adminKoInputs, setAdminKoInputs] = useState({});
   const [adminEditPicks, setAdminEditPicks] = useState({});
   const [adminSelectedPlayer, setAdminSelectedPlayer] = useState(null);
-  const [adminNewName, setAdminNewName] = useState("");
-  const [adminNewPw, setAdminNewPw] = useState("");
   const [adminConfirmDelete, setAdminConfirmDelete] = useState(false);
 
 
@@ -2161,16 +2160,16 @@ export default function App() {
 
 
   function Admin() {
+    const [pw,setPw]=useState("");
+    const [koInputs,setKoInputs]=useState({});
+    const [newName,setNewName]=useState("");
+    const [newPw,setNewPw]=useState("");
     // Aliases to App-level state (see declarations near the top of App) —
-    // keeps the rest of this component's code unchanged while ensuring
-    // this state survives App re-renders without resetting.
-    const pw=adminPw, setPw=setAdminPw;
+    // click/select-driven, so safe to lift; survives App re-renders without
+    // resetting (unlike the typing fields above, which deliberately stay local).
     const tab=adminTab, setTab=setAdminTab;
-    const koInputs=adminKoInputs, setKoInputs=setAdminKoInputs;
     const editPicks=adminEditPicks, setEditPicks=setAdminEditPicks;
     const selectedPlayer=adminSelectedPlayer, setSelectedPlayer=setAdminSelectedPlayer;
-    const newName=adminNewName, setNewName=setAdminNewName;
-    const newPw=adminNewPw, setNewPw=setAdminNewPw;
     const confirmDelete=adminConfirmDelete, setConfirmDelete=setAdminConfirmDelete;
 
     if(!adminAuthed) return (
