@@ -729,6 +729,36 @@ export default function App() {
       let didAnything = false;
       const updatedResults = {...currentResults};
 
+      // Step 0: Persist the final score for EVERY finished match (not just
+      // newly-finished ones — this runs every poll so it backfills existing
+      // results too). Stored under OUR app's pickDate/matchId as
+      // "__score__<matchId>" = "H-A" (optionally ":EXTRA_TIME"/":PENALTY_SHOOTOUT").
+      // This lets the Schedule show "FT 2-0" purely from our own Supabase
+      // data — no live-scores API call needed for matches that finished
+      // long ago, so a transient rate-limit/API issue never makes old
+      // results disappear from the Schedule again.
+      for(const match of finishedMatches) {
+        const score = match.score?.fullTime;
+        if(!score || score.home===null || score.away===null) continue;
+        const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
+        const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
+        const matchEtDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
+        const ourMatch = GROUP_MATCHES.find(m => m.etDate===matchEtDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
+          || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
+              const fx = koFixtures[s.id];
+              return (fx.home===home&&fx.away===away)||(fx.home===away&&fx.away===home);
+            });
+        if(!ourMatch) continue; // can't resolve to one of our scheduled matches yet
+        const dur = match.score?.duration; // REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT
+        const scoreVal = `${score.home}-${score.away}` + (dur && dur!=="REGULAR" ? `:${dur}` : "");
+        const scoreKey = `__score__${ourMatch.id}`;
+        if(updatedResults[`${ourMatch.pickDate}|${scoreKey}`] === scoreVal) continue; // already up to date
+        await supabase.from("results").upsert([{pick_date:ourMatch.pickDate,team:scoreKey,outcome:scoreVal}],{onConflict:"pick_date,team"});
+        updatedResults[`${ourMatch.pickDate}|${scoreKey}`] = scoreVal;
+        didAnything = true;
+      }
+
+
       // Step 1: Log results for all newly finished matches (across all dates)
       for(const [etDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
         for(const {match, home, away, etDate:pd, ourMatchId} of dayMatches) {
@@ -1228,7 +1258,7 @@ export default function App() {
 
   useEffect(() => {
     fetchLiveScores();
-    const i = setInterval(fetchLiveScores, 90000); // every 90s — 1 call per poll
+    const i = setInterval(fetchLiveScores, 180000); // every 3min — with ~50 players each polling independently, frequent polling risks hitting football-data.org's rate limit
     return () => clearInterval(i);
   }, [fetchLiveScores]);
 
@@ -1422,7 +1452,14 @@ export default function App() {
   }
   async function adminSetPick(pid, pickDate, matchId, choice) {
     if(choice==="CLEAR"){
+      // Try a real delete first (cleanest outcome)...
       await supabase.from("picks").delete().eq("player_id",pid).eq("pick_date",pickDate).eq("match_id",String(matchId));
+      // ...but also upsert choice="" as a fallback. If the delete above was
+      // silently blocked (e.g. an RLS policy permits INSERT/UPDATE but not
+      // DELETE), this still achieves the goal: getDayPick treats a falsy
+      // choice (including "") as "no pick", so the stale entry is
+      // functionally cleared either way.
+      await supabase.from("picks").upsert({player_id:pid,pick_date:pickDate,match_id:String(matchId),choice:""},{onConflict:"player_id,pick_date,match_id"});
     } else {
       await supabase.from("picks").upsert({player_id:pid,pick_date:pickDate,match_id:String(matchId),choice},{onConflict:"player_id,pick_date,match_id"});
     }
@@ -1451,16 +1488,36 @@ export default function App() {
 
   function MatchRow({m}) {
     const live = m.home && m.away ? liveScores[`${m.home}|${m.away}`] || liveScores[`${m.away}|${m.home}`] : null;
-    const isLive = live && (live.status==="IN_PLAY"||live.status==="PAUSED"||live.status==="HALFTIME");
-    const isFinished = live && live.status==="FINISHED";
 
-    // Fallback: if liveScores hasn't picked this match up yet (polling gap) but our
-    // own results table already has an outcome for it, still show it as finished.
+    // Persisted final score (written by checkAutoResults for every finished
+    // match — see Step 0). This is the PRIMARY source for finished matches,
+    // so the Schedule shows correct scores purely from our own Supabase
+    // data, without depending on the live-scores API for historical
+    // results (a transient API/rate-limit issue can no longer make old
+    // scores disappear).
+    const persistedRaw = results[`${m.pickDate}|__score__${m.id}`];
+    let persisted = null;
+    if(persistedRaw) {
+      const [scorePart, dur] = persistedRaw.split(":");
+      const [homeScore, awayScore] = scorePart.split("-").map(Number);
+      persisted = {homeScore, awayScore, duration: dur || "REGULAR"};
+    }
+
+    const isLive = !persisted && live && (live.status==="IN_PLAY"||live.status==="PAUSED"||live.status==="HALFTIME");
+    const isFinished = !!persisted || (live && live.status==="FINISHED");
+
+    // Fallback: if neither the persisted score nor liveScores has this match
+    // yet (polling gap) but our results table already has a win/lose/draw
+    // outcome for it, still show it as finished (without a numeric score).
     const drawKey = `Draw#${m.id}`;
-    const resultKnown = !live && m.home && m.away && (
+    const resultKnown = !isFinished && m.home && m.away && (
       results[`${m.pickDate}|${m.home}`] || results[`${m.pickDate}|${m.away}`] || results[`${m.pickDate}|${drawKey}`]
     );
     const isFinishedFallback = isFinished || !!resultKnown;
+
+    // Score to display — prefer the persisted final score, fall back to live.
+    const disp = persisted || live;
+    const showScore = (isLive || isFinished) && disp;
 
     return (
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinishedFallback?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,gap:8,flexWrap:"nowrap"}}>
@@ -1472,8 +1529,8 @@ export default function App() {
         </div>
         <div style={{flex:1,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>
           {m.home?`${f(m.home)} ${m.home}`:"TBD"}
-          {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{live.homeScore}–{live.awayScore}{isFinished&&live.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}{isFinished&&live.duration==="PENALTY_SHOOTOUT"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>P</span>}</span>}
-          {!isLive&&!isFinished&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
+          {showScore&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{disp.homeScore}–{disp.awayScore}{isFinished&&disp.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}{isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>P</span>}</span>}
+          {!showScore&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
           {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
           {m.away?`${f(m.away)} ${m.away}`:"TBD"}
         </div>
