@@ -683,25 +683,6 @@ export default function App() {
       const data = await res.json();
       const allMatches = data.matches || [];
       const finishedMatches = allMatches.filter(m => m.status === "FINISHED");
-      const notFinished = allMatches.filter(m => m.status !== "FINISHED");
-
-      // Build sets of "home|away" team-pairs that are currently live or still pending —
-      // keyed by TEAMS rather than date, since an early-hours match (e.g. kickoff 00:00 ET)
-      // has a different `etDate` (API date) than its `pickDate` (rolled back to the
-      // previous day), so date-keyed sets would miss it when checking if a pick-day
-      // is "fully done".
-      const teamPairKeys = (m) => {
-        const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
-        const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
-        return [`${home}|${away}`, `${away}|${home}`];
-      };
-      const liveTeamPairs = new Set(
-        notFinished.filter(m=>["IN_PLAY","PAUSED","HALFTIME"].includes(m.status)).flatMap(teamPairKeys)
-      );
-      // "Pending" = anything not finished and not currently live (SCHEDULED, TIMED, etc)
-      const pendingTeamPairs = new Set(
-        notFinished.filter(m=>!["IN_PLAY","PAUSED","HALFTIME"].includes(m.status)).flatMap(teamPairKeys)
-      );
 
       // Group finished matches by ET pick date, skip already logged
       const newlyFinishedByDate = {};
@@ -765,103 +746,10 @@ export default function App() {
         }
       }
 
-      // Step 2/3: Lives deduction — run for EVERY locked pick-day not yet fully wrapped
-      // up, regardless of whether anything newly finished THIS poll. This ensures a day
-      // that was left "holding" (Midda's still possible) on a previous poll gets
-      // re-evaluated once newer results (or a code fix) change the picture.
-      const datesToCheck = allPickDates.filter(d =>
-        isLocked(d) && getMatchesForPickDate(d).length>0 && !updatedResults[`${d}|__lives_done__`]
-      );
-
-      for(const etDate of datesToCheck) {
-        // Step 2: Check who's wrong so far for this pick day.
-        // Check EVERY match belonging to this pick-day (including early-hours matches
-        // whose own etDate is the NEXT calendar day) by team-pair, not by date.
-        const dayMatchesAll = getMatchesForPickDate(etDate);
-        const dayStillPlaying = dayMatchesAll.some(m => liveTeamPairs.has(`${m.home}|${m.away}`));
-        const dayHasPending = dayMatchesAll.some(m => pendingTeamPairs.has(`${m.home}|${m.away}`));
-        const dayFullyDone = !dayStillPlaying && !dayHasPending;
-
-        // Find everyone's outcome for this pick day.
-        // "Draw" picks are stored as match-specific "Draw#<matchId>" keys (since a draw
-        // on one match must not be confused with a "Draw" pick on a different match the
-        // same day) — so the lookup key must account for that.
-        const outcomeFor = (p) => {
-          const dp = getDayPick(p, etDate);
-          if(!dp) return { dp, outcome: undefined };
-          const lookupKey = dp.choice === "Draw" ? `Draw#${dp.matchId}` : dp.choice;
-          return { dp, outcome: updatedResults[`${etDate}|${lookupKey}`] };
-        };
-
-        const playersWrong = active.filter(p => {
-          const { dp, outcome } = outcomeFor(p);
-          if(!dp) return true; // no pick = wrong
-          if(!outcome) return null; // match not finished yet — unknown
-          return outcome === "lose" || outcome === "draw_wrong";
-        });
-
-        const playersCorrect = active.filter(p => {
-          const { dp, outcome } = outcomeFor(p);
-          if(!dp) return false;
-          return outcome === "win" || outcome === "draw_correct";
-        });
-
-        const playersUnknown = active.filter(p => {
-          const { dp, outcome } = outcomeFor(p);
-          if(!dp) return false;
-          return !outcome; // their match hasn't finished yet
-        });
-
-        // Step 3: Decide whether to update lives now or wait
-        const middasPossible = playersCorrect.length === 0; // nobody correct yet
-
-        if(dayFullyDone) {
-          // All matches done — final pass. Process anyone not yet marked as processed.
-          const everyoneWrong = playersWrong.length === active.length && active.length > 0;
-          const toProcess = active.filter(p => !updatedResults[`${etDate}|__processed__${p.id}`]);
-          if(everyoneWrong) {
-            console.log(`Midda's Law — everyone wrong on ${etDate}, no lives lost`);
-          } else {
-            const wrongToProcess = toProcess.filter(p => playersWrong.includes(p));
-            const updates = wrongToProcess.map(p => {
-              const nl = p.lives - 1;
-              return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
-            });
-            if(updates.length > 0) { await Promise.all(updates); didAnything = true; }
-          }
-          // Mark this pick day as fully wrapped up so we never touch lives for it again
-          await supabase.from("results").upsert(
-            [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
-            {onConflict:"pick_date,team"}
-          );
-          updatedResults[`${etDate}|__lives_done__`] = "done";
-          didAnything = true;
-        } else if(!middasPossible) {
-          // At least one person is correct — Midda's impossible.
-          // Deduct lives now for anyone DEFINITELY wrong (their match has finished) who hasn't
-          // already been processed. Players still waiting on a pending match (playersUnknown)
-          // are left untouched and will be picked up on a later poll once their match finishes.
-          const toProcess = active.filter(p =>
-            !updatedResults[`${etDate}|__processed__${p.id}`] && playersWrong.includes(p)
-          );
-          const updates = [];
-          const markerRows = [];
-          for(const p of toProcess) {
-            const nl = p.lives - 1;
-            updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id));
-            markerRows.push({pick_date:etDate, team:`__processed__${p.id}`, outcome:"lost_life"});
-          }
-          if(updates.length > 0) await Promise.all(updates);
-          if(markerRows.length > 0) {
-            await supabase.from("results").upsert(markerRows,{onConflict:"pick_date,team"});
-            markerRows.forEach(r => { updatedResults[`${etDate}|${r.team}`] = r.outcome; });
-            didAnything = true;
-          }
-        } else {
-          // Midda's Law still possible — don't update lives yet, wait for remaining matches
-          console.log(`Midda's Law still possible on ${etDate} — holding lives update`);
-        }
-      }
+      // Lives deduction is handled separately by processLivesDeductions, which
+      // runs off `results`/`players` already in state (no API call needed) —
+      // see the dedicated effect below. This means it fires immediately when
+      // results change, rather than waiting for this 10-minute API poll.
 
       // Final step: Persist the final score for EVERY finished match (not
       // just newly-finished ones — this runs every poll so it backfills
@@ -907,13 +795,125 @@ export default function App() {
     }
   }, [loadAll]); // eslint-disable-line
 
-  // Run auto results check every 5 minutes
+  // Run auto results check every 10 minutes (this part needs an API call)
   useEffect(() => {
     const run = () => checkAutoResults(results, players);
     run();
     const i = setInterval(run, 10 * 60 * 1000);
     return () => clearInterval(i);
   }, [results, players, checkAutoResults]);
+
+  // Lives deduction — runs purely off `results`/`players` already in state, no
+  // API call needed, so it fires immediately whenever either changes (e.g.
+  // right after checkAutoResults logs a new result, or right after the admin
+  // manually logs one via the Results tab — no need to wait for the next
+  // 10-minute API poll).
+  //
+  // "Is this pick-day fully resolved?" is determined from the `results` table
+  // itself (same approach as the Audit tab) rather than from live API status —
+  // a match counts as resolved once results has an entry for its home team,
+  // away team, or Draw#<matchId> sentinel (Step 1 above writes all three
+  // together for every finished match).
+  const processLivesDeductions = useCallback(async (currentResults, currentPlayers) => {
+    try {
+      const active = currentPlayers.filter(p=>!p.eliminated&&p.lives>0);
+      if(!active.length) return;
+      let didAnything = false;
+      const updatedResults = {...currentResults};
+
+      const datesToCheck = allPickDates.filter(d =>
+        isLocked(d) && getMatchesForPickDate(d).length>0 && !updatedResults[`${d}|__lives_done__`]
+      );
+
+      for(const etDate of datesToCheck) {
+        const dayMatchesAll = getMatchesForPickDate(etDate);
+        const dayFullyDone = dayMatchesAll.every(m => {
+          const drawKey = `Draw#${m.id}`;
+          return updatedResults[`${etDate}|${m.home}`] !== undefined
+              || updatedResults[`${etDate}|${m.away}`] !== undefined
+              || updatedResults[`${etDate}|${drawKey}`] !== undefined;
+        });
+
+        // "Draw" picks are stored as match-specific "Draw#<matchId>" keys (since a draw
+        // on one match must not be confused with a "Draw" pick on a different match the
+        // same day) — so the lookup key must account for that.
+        const outcomeFor = (p) => {
+          const dp = getDayPick(p, etDate);
+          if(!dp) return { dp, outcome: undefined };
+          const lookupKey = dp.choice === "Draw" ? `Draw#${dp.matchId}` : dp.choice;
+          return { dp, outcome: updatedResults[`${etDate}|${lookupKey}`] };
+        };
+
+        const playersWrong = active.filter(p => {
+          const { dp, outcome } = outcomeFor(p);
+          if(!dp) return true; // no pick = wrong
+          if(!outcome) return false; // match not finished yet — unknown
+          return outcome === "lose" || outcome === "draw_wrong";
+        });
+
+        const playersCorrect = active.filter(p => {
+          const { dp, outcome } = outcomeFor(p);
+          if(!dp) return false;
+          return outcome === "win" || outcome === "draw_correct";
+        });
+
+        const middasPossible = playersCorrect.length === 0; // nobody correct yet
+
+        if(dayFullyDone) {
+          // All matches done — final pass. Process anyone not yet marked as processed.
+          const everyoneWrong = playersWrong.length === active.length && active.length > 0;
+          const toProcess = active.filter(p => !updatedResults[`${etDate}|__processed__${p.id}`]);
+          if(everyoneWrong) {
+            console.log(`Midda's Law — everyone wrong on ${etDate}, no lives lost`);
+          } else {
+            const wrongToProcess = toProcess.filter(p => playersWrong.includes(p));
+            const updates = wrongToProcess.map(p => {
+              const nl = p.lives - 1;
+              return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
+            });
+            if(updates.length > 0) { await Promise.all(updates); didAnything = true; }
+          }
+          // Mark this pick day as fully wrapped up so we never touch lives for it again
+          await supabase.from("results").upsert(
+            [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
+            {onConflict:"pick_date,team"}
+          );
+          updatedResults[`${etDate}|__lives_done__`] = "done";
+          didAnything = true;
+        } else if(!middasPossible) {
+          // At least one person is correct — Midda's impossible.
+          // Deduct lives now for anyone DEFINITELY wrong (their match has finished) who
+          // hasn't already been processed. Players still waiting on a pending match are
+          // left untouched and will be picked up once their match's result is logged.
+          const toProcess = active.filter(p =>
+            !updatedResults[`${etDate}|__processed__${p.id}`] && playersWrong.includes(p)
+          );
+          const updates = [];
+          const markerRows = [];
+          for(const p of toProcess) {
+            const nl = p.lives - 1;
+            updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id));
+            markerRows.push({pick_date:etDate, team:`__processed__${p.id}`, outcome:"lost_life"});
+          }
+          if(updates.length > 0) await Promise.all(updates);
+          if(markerRows.length > 0) {
+            await supabase.from("results").upsert(markerRows,{onConflict:"pick_date,team"});
+            markerRows.forEach(r => { updatedResults[`${etDate}|${r.team}`] = r.outcome; });
+            didAnything = true;
+          }
+        }
+        // else: Midda's Law still possible & day not fully done — wait for more results
+      }
+
+      if(didAnything) loadAll(false);
+    } catch(e) {
+      console.error("Lives deduction error:", e);
+    }
+  }, [loadAll]); // eslint-disable-line
+
+  useEffect(() => {
+    if(players.length>0) processLivesDeductions(results, players);
+  }, [results, players, processLivesDeductions]);
 
   // Automatically apply Howard's Law to anyone who hasn't picked once a pick-day's
   // deadline has passed. Idempotent — only inserts picks for currently-unpicked
