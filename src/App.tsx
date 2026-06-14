@@ -341,6 +341,23 @@ export default function App() {
   const [popupIdx, setPopupIdx] = useState(0);
   const toastRef = useRef(null);
 
+  // ── Admin screen state, lifted to App level ────────────────────────────
+  // Admin() is an inner function component, so it gets a NEW function
+  // reference (and is remounted by React) every time App re-renders — e.g.
+  // every 60s on the loadAll poll, or every 90s on the live-scores poll.
+  // If this state lived inside Admin(), it would silently reset (snapping
+  // back to the Results tab, losing the selected player) mid-edit. Living
+  // here in App means it survives those re-renders.
+  const [adminPw, setAdminPw] = useState("");
+  const [adminTab, setAdminTab] = useState("results");
+  const [adminKoInputs, setAdminKoInputs] = useState({});
+  const [adminEditPicks, setAdminEditPicks] = useState({});
+  const [adminSelectedPlayer, setAdminSelectedPlayer] = useState(null);
+  const [adminNewName, setAdminNewName] = useState("");
+  const [adminNewPw, setAdminNewPw] = useState("");
+  const [adminConfirmDelete, setAdminConfirmDelete] = useState(false);
+
+
   const activePlayer = players.find(p=>p.id==activeId)||null;
   const today = todayET();
 
@@ -869,6 +886,7 @@ export default function App() {
       if(!players.length) return;
       for(const pickDate of allPickDates) {
         if(!isLocked(pickDate)) continue; // deadline hasn't passed yet
+        if(results[`${pickDate}|__howards_done__`]) continue; // permanently processed — never re-check
         const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
         if(unpicked.length>0) applyHowardsLawSilent(pickDate);
       }
@@ -876,7 +894,7 @@ export default function App() {
     run();
     const i = setInterval(run, 5 * 60 * 1000);
     return () => clearInterval(i);
-  }, [players]); // eslint-disable-line
+  }, [players, results]); // eslint-disable-line
 
   // ── AUTO FIXTURES — populates knockout slots from API standings ───────
   // R32 fixed pairings (slot id → {home: "1A" or "2B" etc, away: "3X"})
@@ -1341,6 +1359,16 @@ export default function App() {
     const dayMatches = getMatchesForPickDate(pickDate);
     if(!dayMatches.length) return null;
 
+    // Once a pick-day has been processed (Howard's Law actually applied to at
+    // least one player), NEVER touch it again — this is the critical
+    // safeguard. Without it, if `players`/`picks` data ever loads
+    // incompletely (e.g. a connectivity glitch leaving picks={} for
+    // everyone), getDayPick would return null for ALL players on an old
+    // date, "unpicked" would become everyone, and the upsert below could
+    // silently OVERWRITE real historical picks with Howard's Law
+    // assignments. Once marked done, this date is permanently off-limits.
+    if(results[`${pickDate}|__howards_done__`]) return null;
+
     // Build a flat list of {team, match} for every team playing today
     const teamEntries = dayMatches.flatMap(m => [
       {team:m.home, match:m}, {team:m.away, match:m}
@@ -1359,10 +1387,24 @@ export default function App() {
     const lowest = lowestEntry.team;
     const lowestMatch = lowestEntry.match;
 
-    const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
+    const active = players.filter(p=>p.lives>0&&!p.eliminated);
+    const unpicked = active.filter(p=>!getDayPick(p,pickDate));
     if(!unpicked.length) return null;
+
+    // Sanity check: for a date that's already in the past (not today), if
+    // EVERY currently-active player appears unpicked, this is almost
+    // certainly a data-loading glitch rather than reality — a poller running
+    // every 5 minutes would have caught genuine stragglers for an old date
+    // long ago. Skip without marking done, so it's safely retried once fresh
+    // data loads (and is a no-op then, since real picks already exist).
+    if(pickDate < today && unpicked.length === active.length && active.length > 1) {
+      console.warn(`Howard's Law: skipping ${pickDate} — ALL ${active.length} active players appear unpicked (likely stale/incomplete data), not applying`);
+      return null;
+    }
+
     const inserts = unpicked.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(lowestMatch.id),choice:lowest}));
     await supabase.from("picks").upsert(inserts,{onConflict:"player_id,pick_date,match_id"});
+    await supabase.from("results").upsert([{pick_date:pickDate,team:"__howards_done__",outcome:"done"}],{onConflict:"pick_date,team"});
     loadAll();
     return {pickDate, players:unpicked.map(p=>p.name), team:lowest};
   }
@@ -1730,6 +1772,26 @@ export default function App() {
     const pot = players.length * 10;
     const others = [...players].filter(p=>p.id!=activeId).sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
     const sorted = activePlayer ? [activePlayer, ...others] : others;
+
+    // Auto-scroll to "today" (or the latest available date) on first render,
+    // so the grid opens on the current/upcoming pick-day rather than always
+    // starting at the very first day of the tournament. Still fully
+    // scrollable left/right afterwards.
+    const scrollRef = useRef(null);
+    const hasScrolledRef = useRef(false);
+    useEffect(() => {
+      if(hasScrolledRef.current) return;
+      if(!scrollRef.current || gridDates.length===0) return;
+      const idx = gridDates.indexOf(today);
+      const targetDate = idx>=0 ? today : gridDates[gridDates.length-1];
+      const th = scrollRef.current.querySelector(`[data-col="${targetDate}"]`);
+      const playerTh = scrollRef.current.querySelector('[data-col="player"]');
+      if(th && playerTh) {
+        scrollRef.current.scrollLeft = Math.max(0, th.offsetLeft - playerTh.offsetWidth);
+        hasScrolledRef.current = true;
+      }
+    }, [gridDates, today]);
+
     function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
     function handleCellClick(d, pick) {
       if(!pick||pick==="—"||pick==="") return;
@@ -1772,12 +1834,12 @@ export default function App() {
         </div>
         {gridDates.length===0&&<div style={{textAlign:"center",padding:"32px 0",color:T.muted}}><div style={{fontSize:36,marginBottom:12}}>⏳</div>Grid fills as players make picks.</div>}
         {gridDates.length>0&&(
-          <div style={{overflowX:"auto"}}>
+          <div ref={scrollRef} style={{overflowX:"auto"}}>
             <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
               <thead>
                 <tr>
-                  <th style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
-                  {gridDates.map(d=><th key={d} onClick={()=>handleDateClick(d)} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.text,fontWeight:700,fontSize:11,borderBottom:`1px solid ${T.border}`,minWidth:76,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtDateShort(d)}</th>)}
+                  <th data-col="player" style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
+                  {gridDates.map(d=><th key={d} data-col={d} onClick={()=>handleDateClick(d)} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.text,fontWeight:700,fontSize:11,borderBottom:`1px solid ${T.border}`,minWidth:76,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtDateShort(d)}</th>)}
                 </tr>
                 <tr>
                   <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2,padding:"2px 12px",fontSize:9,color:T.muted,borderBottom:`1px solid ${T.border}`}}>deadline →</td>
@@ -2099,14 +2161,17 @@ export default function App() {
 
 
   function Admin() {
-    const [pw,setPw]=useState("");
-    const [tab,setTab]=useState("results");
-    const [koInputs,setKoInputs]=useState({});
-    const [editPicks,setEditPicks]=useState({});
-    const [selectedPlayer,setSelectedPlayer]=useState(null);
-    const [newName,setNewName]=useState("");
-    const [newPw,setNewPw]=useState("");
-    const [confirmDelete,setConfirmDelete]=useState(false);
+    // Aliases to App-level state (see declarations near the top of App) —
+    // keeps the rest of this component's code unchanged while ensuring
+    // this state survives App re-renders without resetting.
+    const pw=adminPw, setPw=setAdminPw;
+    const tab=adminTab, setTab=setAdminTab;
+    const koInputs=adminKoInputs, setKoInputs=setAdminKoInputs;
+    const editPicks=adminEditPicks, setEditPicks=setAdminEditPicks;
+    const selectedPlayer=adminSelectedPlayer, setSelectedPlayer=setAdminSelectedPlayer;
+    const newName=adminNewName, setNewName=setAdminNewName;
+    const newPw=adminNewPw, setNewPw=setAdminNewPw;
+    const confirmDelete=adminConfirmDelete, setConfirmDelete=setAdminConfirmDelete;
 
     if(!adminAuthed) return (
       <div style={{maxWidth:340,margin:"60px auto"}}>
