@@ -103,8 +103,8 @@ const KNOCKOUT_SLOTS = [
   { id:86,  etDate:"2026-07-03", slot:"R32-14", phase:"L32_L16", kickoffET:"18:00" },
   { id:87,  etDate:"2026-07-03", slot:"R32-15", phase:"L32_L16", kickoffET:"21:30" },
   { id:88,  etDate:"2026-07-03", slot:"R32-16", phase:"L32_L16", kickoffET:"14:00" },
-  { id:89,  etDate:"2026-07-04", slot:"R16-1",  phase:"L32_L16", kickoffET:"13:00" },
-  { id:90,  etDate:"2026-07-04", slot:"R16-2",  phase:"L32_L16", kickoffET:"17:00" },
+  { id:89,  etDate:"2026-07-04", slot:"R16-1",  phase:"L32_L16", kickoffET:"17:00" },
+  { id:90,  etDate:"2026-07-04", slot:"R16-2",  phase:"L32_L16", kickoffET:"13:00" },
   { id:91,  etDate:"2026-07-05", slot:"R16-3",  phase:"L32_L16", kickoffET:"16:00" },
   { id:92,  etDate:"2026-07-05", slot:"R16-4",  phase:"L32_L16", kickoffET:"20:00" },
   { id:93,  etDate:"2026-07-06", slot:"R16-5",  phase:"L32_L16", kickoffET:"15:00" },
@@ -715,13 +715,29 @@ export default function App() {
       for(const [etDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
         for(const {match, home, away, etDate:pd, ourMatchId} of dayMatches) {
           const score = match.score.fullTime;
-          const isDraw = score.home === score.away;
-          const winTeam = isDraw ? home : score.home > score.away ? home : away;
-          const loseTeam = isDraw ? away : score.home > score.away ? away : home;
+          // Use the API's overall `score.winner` field (HOME_TEAM/AWAY_TEAM/DRAW) where
+          // available — this correctly reflects extra-time/penalty outcomes for
+          // knockout matches, where the 90-minute fullTime score may be level even
+          // though the match has a winner. Fall back to comparing fullTime goals
+          // (group-stage matches, or older data without a winner field).
+          const winnerSide = match.score?.winner; // "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null
+          let isDraw, winTeam, loseTeam;
+          if(winnerSide === "HOME_TEAM" || winnerSide === "AWAY_TEAM") {
+            isDraw = false;
+            winTeam = winnerSide === "HOME_TEAM" ? home : away;
+            loseTeam = winnerSide === "HOME_TEAM" ? away : home;
+          } else if(winnerSide === "DRAW") {
+            isDraw = true; winTeam = home; loseTeam = away;
+          } else {
+            // No winner field — fall back to fullTime comparison
+            isDraw = score.home === score.away;
+            winTeam = isDraw ? home : score.home > score.away ? home : away;
+            loseTeam = isDraw ? away : score.home > score.away ? away : home;
+          }
           // Use OUR app's match id for the Draw sentinel — must match what pickOutcomeForMatch looks up.
           // Fall back to the API match id only if we couldn't resolve our own (shouldn't normally happen).
           const drawKey = `Draw#${ourMatchId ?? match.id ?? match.matchId ?? ""}`;
-          console.log(`Auto-logging: ${home} ${score.home}-${score.away} ${away} on ${pd} (ourMatchId=${ourMatchId})`);
+          console.log(`Auto-logging: ${home} ${score.home}-${score.away} ${away} on ${pd} (winner=${winnerSide}, ourMatchId=${ourMatchId})`);
           const rows = isDraw
             ? [{pick_date:pd,team:drawKey,outcome:"draw_correct"},{pick_date:pd,team:home,outcome:"draw_wrong"},{pick_date:pd,team:away,outcome:"draw_wrong"}]
             : [{pick_date:pd,team:winTeam,outcome:"win"},{pick_date:pd,team:loseTeam,outcome:"lose"},{pick_date:pd,team:drawKey,outcome:"draw_wrong"}];
@@ -1072,11 +1088,18 @@ export default function App() {
         // Map API match IDs to our slot IDs using kickoff date + teams
         // For each finished KO match, find winner and populate next round
         for(const match of koMatches) {
-          const score = match.score?.fullTime;
-          if(!score) continue;
           const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
           const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
-          const winner = score.home > score.away ? home : away;
+
+          // Knockout matches can go to extra time/penalties, so the 90-minute
+          // fullTime score may be level even though there IS a winner. Use the
+          // API's overall `score.winner` field (HOME_TEAM/AWAY_TEAM), which
+          // accounts for extra time and penalties, rather than comparing
+          // fullTime goals directly.
+          const winnerSide = match.score?.winner; // "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null
+          if(winnerSide !== "HOME_TEAM" && winnerSide !== "AWAY_TEAM") continue; // not decided yet / data incomplete
+          const winner = winnerSide === "HOME_TEAM" ? home : away;
+          const loser  = winnerSide === "HOME_TEAM" ? away : home;
 
           // Find which slot this match corresponds to in our app
           // by matching the teams to existing ko fixtures
@@ -1087,7 +1110,6 @@ export default function App() {
           const slotId = Number(matchSlot[0]);
           const winCode = `W${slotId}`;
           const loseCode = `L${slotId}`;
-          const loser = score.home > score.away ? away : home;
 
           // Find next round slots that need this winner/loser
           for(const brackets of [R16_BRACKET, QF_BRACKET, SF_BRACKET, FINAL_BRACKET]) {
@@ -1173,6 +1195,9 @@ export default function App() {
           awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
           minute: m.minute || null,
           status,
+          // "REGULAR" | "EXTRA_TIME" | "PENALTY_SHOOTOUT" — used to show an ET/P
+          // indicator on finished knockout matches decided beyond 90 minutes.
+          duration: m.score?.duration || "REGULAR",
         };
         console.log(`Score: ${home} ${scores[key].homeScore}-${scores[key].awayScore} ${away} [${status}]`);
       });
@@ -1404,7 +1429,7 @@ export default function App() {
         </div>
         <div style={{flex:1,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>
           {m.home?`${f(m.home)} ${m.home}`:"TBD"}
-          {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{live.homeScore}–{live.awayScore}</span>}
+          {(isLive||isFinished)&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{live.homeScore}–{live.awayScore}{isFinished&&live.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}{isFinished&&live.duration==="PENALTY_SHOOTOUT"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>P</span>}</span>}
           {!isLive&&!isFinished&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
           {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
           {m.away?`${f(m.away)} ${m.away}`:"TBD"}
@@ -1914,6 +1939,7 @@ export default function App() {
 
   function RulesView() {
     const [showRankings, setShowRankings] = useState(false);
+    const [showTiebreakRules, setShowTiebreakRules] = useState(false);
     const rules=[
       ["💰","Entry & prize","£10 per player, paid in advance. Winner takes the pot. Use the link below to pay your entry fee before the tournament starts.","https://pay.collctiv.com/lps-2026-77059",null],
       ["⚽","Pick daily","One match result per day before the first kick-off (BST). Pick a specific match — team to win or a draw. Unlimited changes until deadline.",null,null],
@@ -1924,8 +1950,8 @@ export default function App() {
       ["❤️","6 lives","Wrong pick = lose a life. Zero lives = eliminated.",null,null],
       ["⚡","Howard's Law","Miss the deadline? You're automatically assigned the lowest FIFA-ranked team playing that day. If you've already used them, you lose a life instead.",null,"rankings"],
       ["⚖️","Midda's Law","If every remaining player picks wrong in the same round, nobody loses a life.",null,null],
-      ["🏅","Remy's Law","Multiple finalists get tiebreak picks equal to the life difference between them. Same lives = one pick each.",null,null],
-      ["🎯","Final tiebreak","Predict the minute of the first goal AND the minute of the first corner.",null,null],
+      ["🎯","Final tiebreak","Predict the minute of the Final's first goal AND first corner — used only if 2+ players are still alive after the Final.",null,"tiebreak"],
+      ["🏅","Remy's Law","Once you reach the Final, the number of lives you have left = the number of tiebreaker \"goes\" you get.",null,null],
       ["🎬","Kejal's Rule","All winners are contractually obliged to create a piece of content for the Ray Gunn launch video, in perpetuity. Failure to deliver will result in an embarrassing photo being used as the WhatsApp group photo, or other elements of humiliation at Danny's discretion.",null,null],
     ];
     return (
@@ -1940,6 +1966,7 @@ export default function App() {
                 <div style={{fontSize:13,color:T.text,lineHeight:1.65}}>{desc}</div>
                 {link&&<a href={link} target="_blank" rel="noreferrer" style={{display:"inline-block",marginTop:8,fontSize:13,color:T.amber,fontWeight:700,textDecoration:"underline"}}>💳 Pay £10 entry fee →</a>}
                 {extraBtn==="rankings"&&<button onClick={()=>setShowRankings(true)} style={{display:"inline-block",marginTop:8,fontSize:12,color:T.amber,fontWeight:700,background:"rgba(255,215,0,0.1)",border:`1px solid ${T.amberBorder}`,borderRadius:8,padding:"5px 12px",cursor:"pointer"}}>🌍 View FIFA Rankings →</button>}
+                {extraBtn==="tiebreak"&&<button onClick={()=>setShowTiebreakRules(true)} style={{display:"inline-block",marginTop:8,fontSize:12,color:T.amber,fontWeight:700,background:"rgba(255,215,0,0.1)",border:`1px solid ${T.amberBorder}`,borderRadius:8,padding:"5px 12px",cursor:"pointer"}}>🎯 View full tiebreaker rules →</button>}
               </div>
             </div>
           ))}
@@ -1960,6 +1987,40 @@ export default function App() {
               ))}
               <div style={{fontSize:11,color:T.muted,margin:"12px 0 4px"}}>Source: Official FIFA World Ranking, April 1 2026</div>
               <button style={{...btn("amber"),width:"100%",marginTop:8}} onClick={()=>setShowRankings(false)}>Close</button>
+            </div>
+          </div>
+        )}
+
+        {/* Final Tiebreaker rules popup */}
+        {showTiebreakRules&&(
+          <div onClick={()=>setShowTiebreakRules(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:20,width:"100%",maxWidth:380,maxHeight:"82vh",overflowY:"auto"}}>
+              <div style={{fontSize:18,fontWeight:800,color:T.amber,marginBottom:4}}>🎯 Final Tiebreaker</div>
+              <div style={{fontSize:11,color:T.muted,marginBottom:16}}>How it works if more than one player is still alive after the Final (M104).</div>
+
+              {[
+                ["1️⃣","Picks open","As soon as the 3rd Place Play-off (M103) finishes — roughly 22 hours before the Final kicks off."],
+                ["🏅","Remy's Law — your \"goes\"","Your number of goes = your number of lives at that point. 4 lives = 4 goes. Each go is a pair: a guess for the minute of the Final's first goal, AND a guess for the minute of the first corner — both 1–120."],
+                ["⏱️","Minute 120 — no goal","If no goal is scored in 120 minutes (straight to penalties), the \"correct\" first-goal minute is treated as 120."],
+                ["🚩","No corners at all","If the goal-minute step is tied and we need corners, but the match somehow had NO corners — there's no actual corner minute to compare against, so we skip straight to the coin flip."],
+                ["🩹","Injury time","A goal in 1st-half injury time counts as 45. 2nd-half injury time = 90. Extra-time 1st half injury time = 105. Extra-time 2nd half injury time = 120."],
+                ["🔒","Hidden picks","Your goes are hidden from every other player (you can edit your own right up until the Final kicks off). Nobody can see anyone else's guesses early."],
+                ["🏆","Step 1 — Final result","M104 plays out as normal — wrong pick still costs a life. Anyone left with lives > 0 afterwards is in the tiebreaker."],
+                ["🥇","Step 2 — First goal","Whoever's CLOSEST go to the actual first-goal minute wins outright — \"WINNER (FIRST GOAL TIEBREAK)\"."],
+                ["🥈","Step 3 — Corner (if tied)","If 2+ players are equally close on goal-minute, we use the CORNER guess from that same go — closest wins — \"WINNER (CORNER TIEBREAK)\"."],
+                ["🪙","Step 4 — Coin flip (last resort)","Still tied? It's settled with a coin flip, live on Danny's Instagram — \"WINNER (COIN-FLIP)\"."],
+                ["👁️","Reveal","Once the Final's deadline passes, everyone's goes, the actual goal/corner minutes, and the working-out are revealed at the top of the Grid tab."],
+              ].map(([icon,title,desc])=>(
+                <div key={title} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:`1px solid ${T.border}`,alignItems:"flex-start"}}>
+                  <div style={{fontSize:18,flexShrink:0,width:26,textAlign:"center",paddingTop:1}}>{icon}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:13,color:T.amber,marginBottom:3}}>{title}</div>
+                    <div style={{fontSize:12,color:T.text,lineHeight:1.6}}>{desc}</div>
+                  </div>
+                </div>
+              ))}
+
+              <button style={{...btn("amber"),width:"100%",marginTop:12}} onClick={()=>setShowTiebreakRules(false)}>Close</button>
             </div>
           </div>
         )}
