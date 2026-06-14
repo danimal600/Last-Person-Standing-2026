@@ -1730,6 +1730,26 @@ export default function App() {
     const pot = players.length * 10;
     const others = [...players].filter(p=>p.id!=activeId).sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
     const sorted = activePlayer ? [activePlayer, ...others] : others;
+
+    // Auto-scroll to "today" (or the latest available date) on first render,
+    // so the grid opens on the current/upcoming pick-day rather than always
+    // starting at the very first day of the tournament. Still fully
+    // scrollable left/right afterwards.
+    const scrollRef = useRef(null);
+    const hasScrolledRef = useRef(false);
+    useEffect(() => {
+      if(hasScrolledRef.current) return;
+      if(!scrollRef.current || gridDates.length===0) return;
+      const idx = gridDates.indexOf(today);
+      const targetDate = idx>=0 ? today : gridDates[gridDates.length-1];
+      const th = scrollRef.current.querySelector(`[data-col="${targetDate}"]`);
+      const playerTh = scrollRef.current.querySelector('[data-col="player"]');
+      if(th && playerTh) {
+        scrollRef.current.scrollLeft = Math.max(0, th.offsetLeft - playerTh.offsetWidth);
+        hasScrolledRef.current = true;
+      }
+    }, [gridDates, today]);
+
     function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
     function handleCellClick(d, pick) {
       if(!pick||pick==="—"||pick==="") return;
@@ -1772,12 +1792,12 @@ export default function App() {
         </div>
         {gridDates.length===0&&<div style={{textAlign:"center",padding:"32px 0",color:T.muted}}><div style={{fontSize:36,marginBottom:12}}>⏳</div>Grid fills as players make picks.</div>}
         {gridDates.length>0&&(
-          <div style={{overflowX:"auto"}}>
+          <div ref={scrollRef} style={{overflowX:"auto"}}>
             <table style={{borderCollapse:"collapse",minWidth:"100%",fontSize:12}}>
               <thead>
                 <tr>
-                  <th style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
-                  {gridDates.map(d=><th key={d} onClick={()=>handleDateClick(d)} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.text,fontWeight:700,fontSize:11,borderBottom:`1px solid ${T.border}`,minWidth:76,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtDateShort(d)}</th>)}
+                  <th data-col="player" style={{padding:"8px 12px",textAlign:"left",color:T.muted,fontWeight:600,fontSize:11,whiteSpace:"nowrap",borderBottom:`1px solid ${T.border}`,position:"sticky",left:0,background:"#0a1500",zIndex:2}}>Player</th>
+                  {gridDates.map(d=><th key={d} data-col={d} onClick={()=>handleDateClick(d)} style={{padding:"6px 8px",textAlign:"center",color:d===today?T.amber:T.text,fontWeight:700,fontSize:11,borderBottom:`1px solid ${T.border}`,minWidth:76,whiteSpace:"nowrap",cursor:"pointer"}}>{fmtDateShort(d)}</th>)}
                 </tr>
                 <tr>
                   <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2,padding:"2px 12px",fontSize:9,color:T.muted,borderBottom:`1px solid ${T.border}`}}>deadline →</td>
