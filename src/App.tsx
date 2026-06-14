@@ -1169,47 +1169,6 @@ export default function App() {
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
-  // ── AUTO-CLEANUP: stale duplicate picks ─────────────────────────────────
-  // Only one pick per day is allowed, but old data (from before that was
-  // enforced) can contain leftover entries for a non-chosen match on a
-  // multi-match day. getDayPick already determines the single "real" pick
-  // for results/lives — the other entries are dead weight that previously
-  // corrupted the "used teams" check. Since the "active" pick (per
-  // getDayPick) is unaffected by removing the others, this is safe to do
-  // silently in the background — no admin step needed.
-  const cleanupDuplicatePicks = useCallback(async (currentPlayers) => {
-    try {
-      const deletions = [];
-      for(const pl of currentPlayers) {
-        for(const d of allPickDates) {
-          const ms = getMatchesForPickDate(d);
-          if(ms.length<2) continue; // only multi-match days can have this issue
-          const withPicks = ms.filter(m => pl.picks[String(m.id)]);
-          if(withPicks.length<2) continue;
-          const dp = getDayPick(pl, d);
-          for(const m of withPicks) {
-            if(dp && dp.matchId === String(m.id)) continue; // keep the active one
-            deletions.push(
-              supabase.from("picks").delete()
-                .eq("player_id", pl.id).eq("pick_date", d).eq("match_id", String(m.id))
-            );
-            console.log(`Auto-cleanup: removing stale pick for ${pl.name} on ${d} (match ${m.id} = ${pl.picks[String(m.id)]})`);
-          }
-        }
-      }
-      if(deletions.length > 0) {
-        await Promise.all(deletions);
-        loadAll(false);
-      }
-    } catch(e) {
-      console.error("Duplicate pick cleanup error:", e);
-    }
-  }, [loadAll]); // eslint-disable-line
-
-  useEffect(() => {
-    if(players.length>0) cleanupDuplicatePicks(players);
-  }, [players, cleanupDuplicatePicks]);
-
   // ── LIVE SCORES — single call for all WC matches, filter client-side ───
   const fetchLiveScores = useCallback(async () => {
     try {
