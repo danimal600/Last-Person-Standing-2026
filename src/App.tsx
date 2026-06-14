@@ -729,26 +729,33 @@ export default function App() {
         const dayHasPending = datesWithPendingMatches.has(etDate);
         const dayFullyDone = !dayStillPlaying && !dayHasPending;
 
-        // Find everyone's outcome for this pick day
-        const playersWrong = active.filter(p => {
+        // Find everyone's outcome for this pick day.
+        // "Draw" picks are stored as match-specific "Draw#<matchId>" keys (since a draw
+        // on one match must not be confused with a "Draw" pick on a different match the
+        // same day) — so the lookup key must account for that.
+        const outcomeFor = (p) => {
           const dp = getDayPick(p, etDate);
+          if(!dp) return { dp, outcome: undefined };
+          const lookupKey = dp.choice === "Draw" ? `Draw#${dp.matchId}` : dp.choice;
+          return { dp, outcome: updatedResults[`${etDate}|${lookupKey}`] };
+        };
+
+        const playersWrong = active.filter(p => {
+          const { dp, outcome } = outcomeFor(p);
           if(!dp) return true; // no pick = wrong
-          const outcome = updatedResults[`${etDate}|${dp.choice}`];
           if(!outcome) return null; // match not finished yet — unknown
           return outcome === "lose" || outcome === "draw_wrong";
         });
 
         const playersCorrect = active.filter(p => {
-          const dp = getDayPick(p, etDate);
+          const { dp, outcome } = outcomeFor(p);
           if(!dp) return false;
-          const outcome = updatedResults[`${etDate}|${dp.choice}`];
           return outcome === "win" || outcome === "draw_correct";
         });
 
         const playersUnknown = active.filter(p => {
-          const dp = getDayPick(p, etDate);
+          const { dp, outcome } = outcomeFor(p);
           if(!dp) return false;
-          const outcome = updatedResults[`${etDate}|${dp.choice}`];
           return !outcome; // their match hasn't finished yet
         });
 
@@ -2050,55 +2057,57 @@ export default function App() {
       const audit = {}; // pid -> { expectedLives, log: [...] }
       players.forEach(p => { audit[p.id] = { expectedLives: STARTING_LIVES, log: [] }; });
 
+      // "Draw" picks are stored as match-specific "Draw#<matchId>" keys.
+      const outcomeFor = (p, pickDate) => {
+        const dp = getDayPick(p, pickDate);
+        if(!dp) return { dp, outcome: undefined };
+        const lookupKey = dp.choice === "Draw" ? `Draw#${dp.matchId}` : dp.choice;
+        return { dp, outcome: results[`${pickDate}|${lookupKey}`] };
+      };
+
       for(const pickDate of pastDates) {
         const dayMatches = getMatchesForPickDate(pickDate);
         if(dayMatches.length===0) continue;
 
-        // Has every match on this pick-day been fully resolved in `results`?
-        const allResolved = dayMatches.every(m => {
+        const active = players.filter(p => audit[p.id].expectedLives > 0);
+        if(active.length===0) continue;
+
+        // Has every match on this pick-day been fully logged in `results`?
+        const dayFullyDone = dayMatches.every(m => {
           const drawKey = `Draw#${m.id}`;
           return results[`${pickDate}|${m.home}`] !== undefined
               || results[`${pickDate}|${m.away}`] !== undefined
               || results[`${pickDate}|${drawKey}`] !== undefined;
         });
-        if(!allResolved) continue; // skip days not fully logged yet
 
-        for(const p of players) {
-          if(audit[p.id].expectedLives <= 0) continue; // already eliminated, skip further days
-
-          const dp = getDayPick(p, pickDate);
-          let wrong;
-          if(!dp) {
-            wrong = true; // Howard's Law — no pick = wrong
-          } else {
-            const choice = dp.choice;
-            const lookupKey = choice === "Draw" ? `Draw#${dp.matchId}` : choice;
-            const outcome = results[`${pickDate}|${lookupKey}`];
-            wrong = (outcome === "lose" || outcome === "draw_wrong");
-          }
-          audit[p.id].log.push({pickDate, dp, wrong});
+        const playersWrong = [], playersCorrect = [], playersUnknown = [];
+        for(const p of active) {
+          const { dp, outcome } = outcomeFor(p, pickDate);
+          if(!dp) { playersWrong.push(p); continue; } // Howard's Law — no pick = wrong
+          if(!outcome) { playersUnknown.push(p); continue; } // match not finished yet
+          if(outcome==="win"||outcome==="draw_correct") playersCorrect.push(p);
+          else playersWrong.push(p);
         }
 
-        // Midda's Law: if EVERY active player on this day is wrong, nobody loses a life
-        const activeThisDay = players.filter(p => audit[p.id].expectedLives > 0);
-        const allWrong = activeThisDay.length>0 && activeThisDay.every(p => {
-          const entry = audit[p.id].log[audit[p.id].log.length-1];
-          return entry && entry.pickDate===pickDate && entry.wrong;
-        });
+        const middasPossible = playersCorrect.length===0;
 
-        if(allWrong) {
-          activeThisDay.forEach(p => {
-            const entry = audit[p.id].log[audit[p.id].log.length-1];
-            if(entry) entry.middasLaw = true;
-          });
-        } else {
-          activeThisDay.forEach(p => {
-            const entry = audit[p.id].log[audit[p.id].log.length-1];
-            if(entry && entry.wrong) {
-              audit[p.id].expectedLives -= 1;
-              entry.lifeLost = true;
-            }
-          });
+        // If the day isn't fully done AND nobody's correct yet, nothing can be
+        // decided for this pick-day yet — skip (matches real-time "holding" behaviour).
+        if(!dayFullyDone && middasPossible) continue;
+
+        const everyoneWrong = dayFullyDone && playersWrong.length===active.length && active.length>0;
+
+        for(const p of active) {
+          if(playersUnknown.includes(p)) continue; // their match hasn't finished — no decision yet
+          const isWrong = playersWrong.includes(p);
+          const entry = {pickDate, dp:getDayPick(p,pickDate), wrong:isWrong};
+          if(everyoneWrong) {
+            entry.middasLaw = true;
+          } else if(isWrong) {
+            audit[p.id].expectedLives -= 1;
+            entry.lifeLost = true;
+          }
+          audit[p.id].log.push(entry);
         }
       }
       return audit;
