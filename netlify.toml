@@ -1,7 +1,16 @@
+
 [build]
   command = "npx vite build"
   publish = "dist"
   functions = "netlify/functions"
-
+ 
 [functions]
   node_bundler = "esbuild"
+ 
+# Runs scheduled-results.js every minute, server-side, independent of how
+# many browsers have the app open. One call/minute = 10% of the free-tier
+# 10 calls/minute limit, regardless of player count. See
+# netlify/functions/scheduled-results.js.
+[functions."scheduled-results"]
+  schedule = "* * * * *"
+ 
