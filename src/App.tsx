@@ -729,36 +729,6 @@ export default function App() {
       let didAnything = false;
       const updatedResults = {...currentResults};
 
-      // Step 0: Persist the final score for EVERY finished match (not just
-      // newly-finished ones — this runs every poll so it backfills existing
-      // results too). Stored under OUR app's pickDate/matchId as
-      // "__score__<matchId>" = "H-A" (optionally ":EXTRA_TIME"/":PENALTY_SHOOTOUT").
-      // This lets the Schedule show "FT 2-0" purely from our own Supabase
-      // data — no live-scores API call needed for matches that finished
-      // long ago, so a transient rate-limit/API issue never makes old
-      // results disappear from the Schedule again.
-      for(const match of finishedMatches) {
-        const score = match.score?.fullTime;
-        if(!score || score.home===null || score.away===null) continue;
-        const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
-        const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
-        const matchEtDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
-        const ourMatch = GROUP_MATCHES.find(m => m.etDate===matchEtDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
-          || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
-              const fx = koFixtures[s.id];
-              return (fx.home===home&&fx.away===away)||(fx.home===away&&fx.away===home);
-            });
-        if(!ourMatch) continue; // can't resolve to one of our scheduled matches yet
-        const dur = match.score?.duration; // REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT
-        const scoreVal = `${score.home}-${score.away}` + (dur && dur!=="REGULAR" ? `:${dur}` : "");
-        const scoreKey = `__score__${ourMatch.id}`;
-        if(updatedResults[`${ourMatch.pickDate}|${scoreKey}`] === scoreVal) continue; // already up to date
-        await supabase.from("results").upsert([{pick_date:ourMatch.pickDate,team:scoreKey,outcome:scoreVal}],{onConflict:"pick_date,team"});
-        updatedResults[`${ourMatch.pickDate}|${scoreKey}`] = scoreVal;
-        didAnything = true;
-      }
-
-
       // Step 1: Log results for all newly finished matches (across all dates)
       for(const [etDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
         for(const {match, home, away, etDate:pd, ourMatchId} of dayMatches) {
@@ -890,6 +860,44 @@ export default function App() {
         } else {
           // Midda's Law still possible — don't update lives yet, wait for remaining matches
           console.log(`Midda's Law still possible on ${etDate} — holding lives update`);
+        }
+      }
+
+      // Final step: Persist the final score for EVERY finished match (not
+      // just newly-finished ones — this runs every poll so it backfills
+      // existing results too). Stored under OUR app's pickDate/matchId as
+      // "__score__<matchId>" = "H-A" (optionally ":EXTRA_TIME"/":PENALTY_SHOOTOUT").
+      // This lets the Schedule show "FT 2-0" purely from our own Supabase
+      // data — no live-scores API call needed for matches that finished
+      // long ago, so a transient rate-limit/API issue never makes old
+      // results disappear from the Schedule again.
+      // Deliberately runs LAST, with each match wrapped in its own
+      // try/catch: if one match has unexpected/missing data, it must NOT
+      // prevent the pick-resolution and lives-deduction logic above (the
+      // critical part) from completing.
+      for(const match of finishedMatches) {
+        try {
+          const score = match.score?.fullTime;
+          if(!score || score.home===null || score.away===null) continue;
+          if(!match.utcDate) continue;
+          const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
+          const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
+          const matchEtDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
+          const ourMatch = GROUP_MATCHES.find(m => m.etDate===matchEtDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
+            || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
+                const fx = koFixtures[s.id];
+                return (fx.home===home&&fx.away===away)||(fx.home===away&&fx.away===home);
+              });
+          if(!ourMatch) continue; // can't resolve to one of our scheduled matches yet
+          const dur = match.score?.duration; // REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT
+          const scoreVal = `${score.home}-${score.away}` + (dur && dur!=="REGULAR" ? `:${dur}` : "");
+          const scoreKey = `__score__${ourMatch.id}`;
+          if(updatedResults[`${ourMatch.pickDate}|${scoreKey}`] === scoreVal) continue; // already up to date
+          await supabase.from("results").upsert([{pick_date:ourMatch.pickDate,team:scoreKey,outcome:scoreVal}],{onConflict:"pick_date,team"});
+          updatedResults[`${ourMatch.pickDate}|${scoreKey}`] = scoreVal;
+          didAnything = true;
+        } catch(e) {
+          console.error("Score-persist error for match", match?.id, e);
         }
       }
 
@@ -1509,11 +1517,17 @@ export default function App() {
     // Fallback: if neither the persisted score nor liveScores has this match
     // yet (polling gap) but our results table already has a win/lose/draw
     // outcome for it, still show it as finished (without a numeric score).
+    // Also check m.etDate as a fallback key — for early-hours matches (e.g.
+    // 00:00 ET kickoffs), m.pickDate is rolled back a day for grouping
+    // purposes, but older results may have been written under the API's
+    // etDate before this distinction was handled consistently.
     const drawKey = `Draw#${m.id}`;
     const resultKnown = !isFinished && m.home && m.away && (
       results[`${m.pickDate}|${m.home}`] || results[`${m.pickDate}|${m.away}`] || results[`${m.pickDate}|${drawKey}`]
+      || (m.etDate && m.etDate!==m.pickDate && (results[`${m.etDate}|${m.home}`] || results[`${m.etDate}|${m.away}`] || results[`${m.etDate}|${drawKey}`]))
     );
     const isFinishedFallback = isFinished || !!resultKnown;
+
 
     // Score to display — prefer the persisted final score, fall back to live.
     const disp = persisted || live;
