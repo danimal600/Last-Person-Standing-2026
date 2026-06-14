@@ -292,8 +292,13 @@ function NavTimer({ activeDates, deadlineBSTByPickDate, activePlayer, today, isL
     for(const pickDate of activeDates) {
       const dlBST = deadlineBSTByPickDate[pickDate]; if(!dlBST) continue;
       const [hh,mm] = dlBST.split(":").map(Number);
-      const etH = hh>=5?hh-5:hh+19;
-      const dlUTC = new Date(new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(mm).padStart(2,"0")}:00`).getTime()+4*3600000);
+      // Convert the BST deadline directly to UTC (BST = UTC+1) using explicit UTC date
+      // methods — avoids ambiguity from parsing date strings in the browser's local timezone.
+      let utcH = hh - 1, dayOffset = 0;
+      if(utcH < 0) { utcH += 24; dayOffset = -1; }
+      const dlUTC = new Date(pickDate+"T00:00:00Z");
+      dlUTC.setUTCDate(dlUTC.getUTCDate()+dayOffset);
+      dlUTC.setUTCHours(utcH, mm, 0, 0);
       if(dlUTC > now) {
         const ms=dlUTC-now,d=Math.floor(ms/86400000),h=Math.floor((ms%86400000)/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000);
         text = d>0?`${d}d ${h}h ${m}m ${s}s`:h>0?`${h}h ${m}m ${s}s`:`${m}m ${s}s`;
@@ -750,44 +755,51 @@ export default function App() {
         // Step 3: Decide whether to update lives now or wait
         const middasPossible = playersCorrect.length === 0; // nobody correct yet
 
-        // Check if lives have already been processed for this pick day
+        // Check if this entire pick day has already been fully wrapped up
         const livesAlreadyProcessed = !!currentResults[`${etDate}|__lives_done__`];
 
         if(livesAlreadyProcessed) {
           console.log(`Lives already processed for ${etDate} — skipping`);
         } else if(dayFullyDone) {
-          // All matches done — do final Midda's check
-          if(playersWrong.length === active.length && active.length > 0) {
+          // All matches done — final pass. Process anyone not yet marked as processed.
+          const everyoneWrong = playersWrong.length === active.length && active.length > 0;
+          const toProcess = active.filter(p => !currentResults[`${etDate}|__processed__${p.id}`]);
+          if(everyoneWrong) {
             console.log(`Midda's Law — everyone wrong on ${etDate}, no lives lost`);
           } else {
-            // Update lives for everyone wrong
-            const updates = playersWrong.map(p => {
+            const wrongToProcess = toProcess.filter(p => playersWrong.includes(p));
+            const updates = wrongToProcess.map(p => {
               const nl = p.lives - 1;
               return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
             });
             if(updates.length > 0) await Promise.all(updates);
           }
-          // Mark this pick day as fully processed so we never touch lives for it again
+          // Mark this pick day as fully wrapped up so we never touch lives for it again
           await supabase.from("results").upsert(
             [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
             {onConflict:"pick_date,team"}
           );
           updatedResults[`${etDate}|__lives_done__`] = "done";
         } else if(!middasPossible) {
-          // At least one person is correct — Midda's impossible
-          // Update lives for wrong players whose match has finished (playersUnknown still waiting)
-          const definitelyWrong = playersWrong; // these have a finished result and it's wrong
-          const updates = definitelyWrong.map(p => {
-            const nl = p.lives - 1;
-            return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
-          });
-          if(updates.length > 0) await Promise.all(updates);
-          // Mark this pick day as fully processed — remaining matches won't trigger further deductions
-          await supabase.from("results").upsert(
-            [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
-            {onConflict:"pick_date,team"}
+          // At least one person is correct — Midda's impossible.
+          // Deduct lives now for anyone DEFINITELY wrong (their match has finished) who hasn't
+          // already been processed. Players still waiting on a pending match (playersUnknown)
+          // are left untouched and will be picked up on a later poll once their match finishes.
+          const toProcess = active.filter(p =>
+            !currentResults[`${etDate}|__processed__${p.id}`] && playersWrong.includes(p)
           );
-          updatedResults[`${etDate}|__lives_done__`] = "done";
+          const updates = [];
+          const markerRows = [];
+          for(const p of toProcess) {
+            const nl = p.lives - 1;
+            updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id));
+            markerRows.push({pick_date:etDate, team:`__processed__${p.id}`, outcome:"lost_life"});
+          }
+          if(updates.length > 0) await Promise.all(updates);
+          if(markerRows.length > 0) {
+            await supabase.from("results").upsert(markerRows,{onConflict:"pick_date,team"});
+            markerRows.forEach(r => { updatedResults[`${etDate}|${r.team}`] = r.outcome; });
+          }
         } else {
           // Midda's Law still possible — don't update lives yet, wait for remaining matches
           console.log(`Midda's Law still possible on ${etDate} — holding lives update`);
@@ -807,6 +819,23 @@ export default function App() {
     const i = setInterval(run, 10 * 60 * 1000);
     return () => clearInterval(i);
   }, [results, players, checkAutoResults]);
+
+  // Automatically apply Howard's Law to anyone who hasn't picked once a pick-day's
+  // deadline has passed. Idempotent — only inserts picks for currently-unpicked
+  // players, so safe to run repeatedly.
+  useEffect(() => {
+    const run = () => {
+      if(!players.length) return;
+      for(const pickDate of allPickDates) {
+        if(!isLocked(pickDate)) continue; // deadline hasn't passed yet
+        const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
+        if(unpicked.length>0) applyHowardsLawSilent(pickDate);
+      }
+    };
+    run();
+    const i = setInterval(run, 5 * 60 * 1000);
+    return () => clearInterval(i);
+  }, [players]); // eslint-disable-line
 
   // ── AUTO FIXTURES — populates knockout slots from API standings ───────
   // R32 fixed pairings (slot id → {home: "1A" or "2B" etc, away: "3X"})
@@ -1103,13 +1132,14 @@ export default function App() {
       const data = await res.json();
       console.log("Live scores: got", data.matches?.length, "matches");
       const scores = {};
-      const twoDaysAgo = new Date(Date.now() - 2*24*3600*1000);
       (data.matches||[]).forEach(m => {
         const status = m.status;
         const isLive = ["IN_PLAY","PAUSED","HALFTIME"].includes(status);
         const isFinished = status === "FINISHED";
-        // Only include live or recently finished
-        if(!isLive && (!isFinished || new Date(m.utcDate) < twoDaysAgo)) return;
+        // Include all live and finished matches — the API returns the full
+        // tournament in one call anyway, so there's no extra cost to showing
+        // historical scores too (avoids the "–" placeholder fallback).
+        if(!isLive && !isFinished) return;
         const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
         const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
         if(!home || !away) return;
@@ -1247,17 +1277,46 @@ export default function App() {
   }
 
   async function applyHowardsLaw(pickDate) {
-    const teams = getMatchesForPickDate(pickDate).flatMap(m=>[m.home,m.away]).filter(Boolean);
-    const lowest = teams[teams.length-1]||""; if(!lowest)return;
-    const dayMatches = getMatchesForPickDate(pickDate);
-    const firstMatch = dayMatches[0]; if(!firstMatch)return;
-    const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
-    if(!unpicked.length){toast_("info","All active players already have picks.");return;}
-    const inserts = unpicked.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(firstMatch.id),choice:lowest}));
-    await supabase.from("picks").upsert(inserts,{onConflict:"player_id,pick_date,match_id"});
-    setHowardsResult({pickDate, players:unpicked.map(p=>p.name), team:lowest});
-    loadAll();
+    const result = await applyHowardsLawCore(pickDate);
+    if(result === null) { toast_("info","All active players already have picks."); return; }
+    setHowardsResult(result);
   }
+
+  // Silent version for automatic background application — no toast/modal popup
+  async function applyHowardsLawSilent(pickDate) {
+    await applyHowardsLawCore(pickDate);
+  }
+
+  async function applyHowardsLawCore(pickDate) {
+    const dayMatches = getMatchesForPickDate(pickDate);
+    if(!dayMatches.length) return null;
+
+    // Build a flat list of {team, match} for every team playing today
+    const teamEntries = dayMatches.flatMap(m => [
+      {team:m.home, match:m}, {team:m.away, match:m}
+    ]).filter(e=>e.team);
+
+    // Find the LOWEST-ranked team (highest rank number = worst) using FIFA_RANKINGS
+    const rankOf = (team) => {
+      const entry = FIFA_RANKINGS.find(r=>r.team===team);
+      return entry ? entry.rank : -1; // unranked teams (rank -1) are treated as "lowest" (worst) — shouldn't normally occur with 48 WC teams
+    };
+    let lowestEntry = teamEntries[0];
+    for(const e of teamEntries) {
+      const cur = rankOf(e.team), best = rankOf(lowestEntry.team);
+      if(cur > best) lowestEntry = e; // bigger rank number = worse team
+    }
+    const lowest = lowestEntry.team;
+    const lowestMatch = lowestEntry.match;
+
+    const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
+    if(!unpicked.length) return null;
+    const inserts = unpicked.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(lowestMatch.id),choice:lowest}));
+    await supabase.from("picks").upsert(inserts,{onConflict:"player_id,pick_date,match_id"});
+    loadAll();
+    return {pickDate, players:unpicked.map(p=>p.name), team:lowest};
+  }
+
 
   async function setKoFixture(slotId, home, away) {
     await supabase.from("ko_fixtures").upsert({slot_id:slotId,home,away},{onConflict:"slot_id"});
@@ -1446,12 +1505,13 @@ export default function App() {
       for(const pickDate of activeDates) {
         const dlBST = deadlineBSTByPickDate[pickDate];
         if(!dlBST) continue;
-        // Convert deadline to a JS Date (ET = BST - 5hrs)
+        // Convert the BST deadline directly to UTC (BST = UTC+1) using explicit UTC date methods
         const [h,m] = dlBST.split(":").map(Number);
-        const etH = h >= 5 ? h - 5 : h + 19;
-        const dl = new Date(`${pickDate}T${String(etH).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`);
-        // Treat as ET (UTC-4 in summer)
-        const dlUTC = new Date(dl.getTime() + 4*60*60*1000);
+        let utcH = h - 1, dayOffset = 0;
+        if(utcH < 0) { utcH += 24; dayOffset = -1; }
+        const dlUTC = new Date(pickDate+"T00:00:00Z");
+        dlUTC.setUTCDate(dlUTC.getUTCDate()+dayOffset);
+        dlUTC.setUTCHours(utcH, m, 0, 0);
         if(dlUTC > now) {
           return { pickDate, dlBST, dlUTC, locked: false };
         }
