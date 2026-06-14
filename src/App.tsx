@@ -2001,9 +2001,10 @@ export default function App() {
               {[
                 ["1️⃣","Picks open","As soon as the 3rd Place Play-off (M103) finishes — roughly 22 hours before the Final kicks off."],
                 ["🏅","Remy's Law — your \"goes\"","Your number of goes = your number of lives at that point. 4 lives = 4 goes. Each go is a pair: a guess for the minute of the Final's first goal, AND a guess for the minute of the first corner — both 1–120."],
-                ["⏱️","Minute 120 — no goal","If no goal is scored in 120 minutes (straight to penalties), the \"correct\" first-goal minute is treated as 120."],
-                ["🚩","No corners at all","If the goal-minute step is tied and we need corners, but the match somehow had NO corners — there's no actual corner minute to compare against, so we skip straight to the coin flip."],
+                ["⏱️","Penalty shootout = the first goal","If it's still 0-0 after 120 minutes, the shootout happens — and the FIRST PENALTY SCORED counts as \"the first goal\", recorded as minute 120 for tiebreak purposes."],
+                ["📺","FIFA's site is the source of truth","The actual first-goal minute (and first-corner minute) will be taken exactly as displayed on FIFA's official website/match centre — including how they record injury-time goals."],
                 ["🩹","Injury time","A goal in 1st-half injury time counts as 45. 2nd-half injury time = 90. Extra-time 1st half injury time = 105. Extra-time 2nd half injury time = 120."],
+                ["🚩","No corners at all","If the goal-minute step is tied and we need corners, but the match somehow had NO corners — there's no actual corner minute to compare against, so we skip straight to the coin flip."],
                 ["🔒","Hidden picks","Your goes are hidden from every other player (you can edit your own right up until the Final kicks off). Nobody can see anyone else's guesses early."],
                 ["🏆","Step 1 — Final result","M104 plays out as normal — wrong pick still costs a life. Anyone left with lives > 0 afterwards is in the tiebreaker."],
                 ["🥇","Step 2 — First goal","Whoever's CLOSEST go to the actual first-goal minute wins outright — \"WINNER (FIRST GOAL TIEBREAK)\"."],
