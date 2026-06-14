@@ -194,13 +194,15 @@ function isLocked(pickDate) {
 // picks is now { "matchId": "choice" } — one pick per match, not per day
 function getPicksInPhase(player, pickDate) {
   const ph=phaseOf(pickDate); if(ph==="FREE")return[];
-  // collect all team picks (not Draw) across all matches in this phase
-  const allMatches = allPickDates
-    .filter(d=>phaseOf(d)===ph)
-    .flatMap(d=>[...(matchesByPickDate[d]||[]), ...KNOCKOUT_SLOTS.filter(s=>s.pickDate===d)]);
-  return allMatches
-    .map(m=>player.picks[String(m.id)])
-    .filter(p=>p&&p!=="Draw");
+  // Only count each pick-day's ACTUAL active pick (via getDayPick) — a player can have
+  // stale leftover pick entries for OTHER matches on a day they later changed their mind
+  // on (only one pick per day is allowed, but old entries for the non-chosen match can
+  // remain in the data). Those stale entries must NOT count towards "used teams".
+  const datesInPhase = allPickDates.filter(d=>phaseOf(d)===ph);
+  return datesInPhase
+    .map(d=>getDayPick(player,d))
+    .filter(dp=>dp && dp.choice!=="Draw")
+    .map(dp=>dp.choice);
 }
 
 function fmtBST(bst) { if(!bst)return"—"; const[h,m]=bst.split(":").map(Number),ap=h>=12?"pm":"am",h12=h>12?h-12:h===0?12:h; return`${h12}:${m.toString().padStart(2,"0")}${ap}`; }
@@ -1167,6 +1169,47 @@ export default function App() {
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
+  // ── AUTO-CLEANUP: stale duplicate picks ─────────────────────────────────
+  // Only one pick per day is allowed, but old data (from before that was
+  // enforced) can contain leftover entries for a non-chosen match on a
+  // multi-match day. getDayPick already determines the single "real" pick
+  // for results/lives — the other entries are dead weight that previously
+  // corrupted the "used teams" check. Since the "active" pick (per
+  // getDayPick) is unaffected by removing the others, this is safe to do
+  // silently in the background — no admin step needed.
+  const cleanupDuplicatePicks = useCallback(async (currentPlayers) => {
+    try {
+      const deletions = [];
+      for(const pl of currentPlayers) {
+        for(const d of allPickDates) {
+          const ms = getMatchesForPickDate(d);
+          if(ms.length<2) continue; // only multi-match days can have this issue
+          const withPicks = ms.filter(m => pl.picks[String(m.id)]);
+          if(withPicks.length<2) continue;
+          const dp = getDayPick(pl, d);
+          for(const m of withPicks) {
+            if(dp && dp.matchId === String(m.id)) continue; // keep the active one
+            deletions.push(
+              supabase.from("picks").delete()
+                .eq("player_id", pl.id).eq("pick_date", d).eq("match_id", String(m.id))
+            );
+            console.log(`Auto-cleanup: removing stale pick for ${pl.name} on ${d} (match ${m.id} = ${pl.picks[String(m.id)]})`);
+          }
+        }
+      }
+      if(deletions.length > 0) {
+        await Promise.all(deletions);
+        loadAll(false);
+      }
+    } catch(e) {
+      console.error("Duplicate pick cleanup error:", e);
+    }
+  }, [loadAll]); // eslint-disable-line
+
+  useEffect(() => {
+    if(players.length>0) cleanupDuplicatePicks(players);
+  }, [players, cleanupDuplicatePicks]);
+
   // ── LIVE SCORES — single call for all WC matches, filter client-side ───
   const fetchLiveScores = useCallback(async () => {
     try {
@@ -1646,7 +1689,11 @@ export default function App() {
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                           {[m.home,m.away,"Draw"].map(choice=>{
                             const usedNotHere=choice!=="Draw"&&usedPhase.includes(choice)&&myPick!==choice;
-                            const sel=myPick===choice;
+                            // Only show the checkmark/selected state on the match that is
+                            // ACTUALLY today's active pick. A stale leftover entry for a
+                            // different (dimmed) match on the same day should not display
+                            // as "selected" — it's not the player's real pick for today.
+                            const sel=!otherMatchPicked&&myPick===choice;
                             const disabled=otherMatchPicked||usedNotHere||locked;
                             // Tap selected pick to clear it
                             const handleClick=()=>{
