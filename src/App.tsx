@@ -272,6 +272,7 @@ const T = {
   text:"#f5f0dc", muted:"#8a9e72", night:"#c084fc",
   cellCorrect:"rgba(0,110,45,0.80)", cellWrong:"rgba(160,30,30,0.82)",
   cellPending:"rgba(160,130,0,0.55)", cellNoPick:"rgba(40,50,60,0.70)",
+  cellMidda:"rgba(255,215,0,0.55)",
 };
 const ADMIN_PW = "worldcup2026";
 
@@ -803,117 +804,89 @@ export default function App() {
     return () => clearInterval(i);
   }, [results, players, checkAutoResults]);
 
-  // Lives deduction — runs purely off `results`/`players` already in state, no
-  // API call needed, so it fires immediately whenever either changes (e.g.
-  // right after checkAutoResults logs a new result, or right after the admin
-  // manually logs one via the Results tab — no need to wait for the next
-  // 10-minute API poll).
+  // ── AUDIT-BASED LIFE RECONCILIATION ─────────────────────────────────────
+  // Recomputes every player's lives from scratch based purely on picks +
+  // results (identical logic to the Admin "Audit Lives" tab — a full
+  // independent recompute, not an incremental update). Whenever this
+  // disagrees with the stored players.lives/eliminated, it's automatically
+  // corrected. Runs off data already in state — no API call needed, so it
+  // fires immediately whenever results/players change (e.g. right after the
+  // admin manually logs a result in the Results tab).
   //
-  // "Is this pick-day fully resolved?" is determined from the `results` table
-  // itself (same approach as the Audit tab) rather than from live API status —
-  // a match counts as resolved once results has an entry for its home team,
-  // away team, or Draw#<matchId> sentinel (Step 1 above writes all three
-  // together for every finished match).
-  const processLivesDeductions = useCallback(async (currentResults, currentPlayers) => {
-    try {
-      const active = currentPlayers.filter(p=>!p.eliminated&&p.lives>0);
-      if(!active.length) return;
-      let didAnything = false;
-      const updatedResults = {...currentResults};
+  // ⚠️ Because this is fully automatic and treats picks+results as the only
+  // source of truth, any MANUAL life adjustment via Admin's +/- buttons that
+  // ISN'T reflected in picks/results will be reverted next time this runs.
+  // If an out-of-band adjustment is ever genuinely needed (e.g. a goodwill
+  // life), it would need to be encoded via picks/results, not just
+  // players.lives directly.
+  function computeExpectedLives(playersList, resultsObj) {
+    const STARTING_LIVES = 6;
+    const pastDates = activeDates.filter(d=>isLocked(d));
+    const expected = {};
+    const middasDates = new Set();
+    playersList.forEach(p => { expected[p.id] = STARTING_LIVES; });
 
-      const datesToCheck = allPickDates.filter(d =>
-        isLocked(d) && getMatchesForPickDate(d).length>0 && !updatedResults[`${d}|__lives_done__`]
-      );
+    const outcomeFor = (p, pickDate) => {
+      const dp = getDayPick(p, pickDate);
+      if(!dp) return { dp, outcome: undefined };
+      const lookupKey = dp.choice === "Draw" ? `Draw#${dp.matchId}` : dp.choice;
+      return { dp, outcome: resultsObj[`${pickDate}|${lookupKey}`] };
+    };
 
-      for(const etDate of datesToCheck) {
-        const dayMatchesAll = getMatchesForPickDate(etDate);
-        const dayFullyDone = dayMatchesAll.every(m => {
-          const drawKey = `Draw#${m.id}`;
-          return updatedResults[`${etDate}|${m.home}`] !== undefined
-              || updatedResults[`${etDate}|${m.away}`] !== undefined
-              || updatedResults[`${etDate}|${drawKey}`] !== undefined;
-        });
+    for(const pickDate of pastDates) {
+      const dayMatches = getMatchesForPickDate(pickDate);
+      if(dayMatches.length===0) continue;
 
-        // "Draw" picks are stored as match-specific "Draw#<matchId>" keys (since a draw
-        // on one match must not be confused with a "Draw" pick on a different match the
-        // same day) — so the lookup key must account for that.
-        const outcomeFor = (p) => {
-          const dp = getDayPick(p, etDate);
-          if(!dp) return { dp, outcome: undefined };
-          const lookupKey = dp.choice === "Draw" ? `Draw#${dp.matchId}` : dp.choice;
-          return { dp, outcome: updatedResults[`${etDate}|${lookupKey}`] };
-        };
+      const active = playersList.filter(p => expected[p.id] > 0);
+      if(active.length===0) continue;
 
-        const playersWrong = active.filter(p => {
-          const { dp, outcome } = outcomeFor(p);
-          if(!dp) return true; // no pick = wrong
-          if(!outcome) return false; // match not finished yet — unknown
-          return outcome === "lose" || outcome === "draw_wrong";
-        });
+      const dayFullyDone = dayMatches.every(m => {
+        const drawKey = `Draw#${m.id}`;
+        return resultsObj[`${pickDate}|${m.home}`] !== undefined
+            || resultsObj[`${pickDate}|${m.away}`] !== undefined
+            || resultsObj[`${pickDate}|${drawKey}`] !== undefined;
+      });
 
-        const playersCorrect = active.filter(p => {
-          const { dp, outcome } = outcomeFor(p);
-          if(!dp) return false;
-          return outcome === "win" || outcome === "draw_correct";
-        });
-
-        const middasPossible = playersCorrect.length === 0; // nobody correct yet
-
-        if(dayFullyDone) {
-          // All matches done — final pass. Process anyone not yet marked as processed.
-          const everyoneWrong = playersWrong.length === active.length && active.length > 0;
-          const toProcess = active.filter(p => !updatedResults[`${etDate}|__processed__${p.id}`]);
-          if(everyoneWrong) {
-            console.log(`Midda's Law — everyone wrong on ${etDate}, no lives lost`);
-          } else {
-            const wrongToProcess = toProcess.filter(p => playersWrong.includes(p));
-            const updates = wrongToProcess.map(p => {
-              const nl = p.lives - 1;
-              return supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id);
-            });
-            if(updates.length > 0) { await Promise.all(updates); didAnything = true; }
-          }
-          // Mark this pick day as fully wrapped up so we never touch lives for it again
-          await supabase.from("results").upsert(
-            [{pick_date:etDate,team:"__lives_done__",outcome:"done"}],
-            {onConflict:"pick_date,team"}
-          );
-          updatedResults[`${etDate}|__lives_done__`] = "done";
-          didAnything = true;
-        } else if(!middasPossible) {
-          // At least one person is correct — Midda's impossible.
-          // Deduct lives now for anyone DEFINITELY wrong (their match has finished) who
-          // hasn't already been processed. Players still waiting on a pending match are
-          // left untouched and will be picked up once their match's result is logged.
-          const toProcess = active.filter(p =>
-            !updatedResults[`${etDate}|__processed__${p.id}`] && playersWrong.includes(p)
-          );
-          const updates = [];
-          const markerRows = [];
-          for(const p of toProcess) {
-            const nl = p.lives - 1;
-            updates.push(supabase.from("players").update({lives:nl,eliminated:nl===0}).eq("id",p.id));
-            markerRows.push({pick_date:etDate, team:`__processed__${p.id}`, outcome:"lost_life"});
-          }
-          if(updates.length > 0) await Promise.all(updates);
-          if(markerRows.length > 0) {
-            await supabase.from("results").upsert(markerRows,{onConflict:"pick_date,team"});
-            markerRows.forEach(r => { updatedResults[`${etDate}|${r.team}`] = r.outcome; });
-            didAnything = true;
-          }
-        }
-        // else: Midda's Law still possible & day not fully done — wait for more results
+      const playersWrong = [], playersCorrect = [], playersUnknown = [];
+      for(const p of active) {
+        const { dp, outcome } = outcomeFor(p, pickDate);
+        if(!dp) { playersWrong.push(p); continue; } // Howard's Law — no pick = wrong
+        if(!outcome) { playersUnknown.push(p); continue; } // match not finished yet
+        if(outcome==="win"||outcome==="draw_correct") playersCorrect.push(p);
+        else playersWrong.push(p);
       }
 
-      if(didAnything) loadAll(false);
-    } catch(e) {
-      console.error("Lives deduction error:", e);
+      const middasPossible = playersCorrect.length===0;
+      if(!dayFullyDone && middasPossible) continue; // nothing decidable yet
+
+      const everyoneWrong = dayFullyDone && playersWrong.length===active.length && active.length>0;
+      if(everyoneWrong) middasDates.add(pickDate);
+
+      for(const p of active) {
+        if(playersUnknown.includes(p)) continue; // their match hasn't finished — no decision yet
+        if(everyoneWrong) continue; // Midda's Law — no change
+        if(playersWrong.includes(p)) expected[p.id] -= 1;
+      }
     }
-  }, [loadAll]); // eslint-disable-line
+    return { expected, middasDates };
+  }
 
   useEffect(() => {
-    if(players.length>0) processLivesDeductions(results, players);
-  }, [results, players, processLivesDeductions]);
+    if(!players.length) return;
+    const { expected } = computeExpectedLives(players, results);
+    const updates = [];
+    for(const p of players) {
+      const exp = expected[p.id];
+      if(exp===undefined) continue;
+      const expEliminated = exp===0;
+      if(exp !== p.lives || expEliminated !== p.eliminated) {
+        updates.push(supabase.from("players").update({lives:exp, eliminated:expEliminated}).eq("id",p.id));
+      }
+    }
+    if(updates.length>0) {
+      Promise.all(updates).then(()=>loadAll(false));
+    }
+  }, [players, results]); // eslint-disable-line
 
   // Automatically apply Howard's Law to anyone who hasn't picked once a pick-day's
   // deadline has passed. Idempotent — only inserts picks for currently-unpicked
@@ -1280,7 +1253,9 @@ export default function App() {
     const lookupKey = choice === "Draw" ? `Draw#${matchId}` : choice;
     const r = results[`${pickDate}|${lookupKey}`];
     if (!r) return locked ? "pending" : "future";
-    return (r==="win"||r==="draw_correct") ? "correct" : (r==="lose"||r==="draw_wrong") ? "wrong" : "pending";
+    if (r==="win"||r==="draw_correct") return "correct";
+    if (r==="lose"||r==="draw_wrong") return middasDates.has(pickDate) ? "midda" : "wrong";
+    return "pending";
   }
 
   // For the grid, we want to show a player's pick for an entire day
@@ -1296,6 +1271,10 @@ export default function App() {
     return [...gm,...km];
   }
   const activeDates = allPickDates.filter(d => groupPickDates.includes(d) || KNOCKOUT_SLOTS.filter(s=>s.pickDate===d).some(s=>koFixtures[s.id]));
+  // Dates on which Midda's Law applied (everyone wrong, nobody loses a life) —
+  // used to colour those picks differently on the Grid (gold) rather than
+  // showing them as a plain "wrong" (red), since no life was actually lost.
+  const middasDates = computeExpectedLives(players, results).middasDates;
 
   // Make a pick for a specific match
   async function makePick(pid, pickDate, matchId, choice) {
@@ -1862,7 +1841,7 @@ export default function App() {
       }
     }, [gridDates, today]);
 
-    function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
+    function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="midda")return T.cellMidda;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
     function handleCellClick(d, pick) {
       if(!pick||pick==="—"||pick==="") return;
       const pickers = players.filter(p=>{const dp=getDayPick(p,d);return dp&&dp.choice===pick;});
@@ -1956,7 +1935,7 @@ export default function App() {
           </div>
         )}
         <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:16}}>
-          {[[T.cellCorrect,"✓ Correct"],[T.cellWrong,"✗ Wrong"],[T.cellPending,"⏳ Pending"],[T.cellNoPick,"— No pick"]].map(([bg,label])=>(
+          {[[T.cellCorrect,"✓ Correct"],[T.cellWrong,"✗ Wrong"],[T.cellMidda,"⚖️ Wrong (Midda's saved)"],[T.cellPending,"⏳ Pending"],[T.cellNoPick,"— No pick"]].map(([bg,label])=>(
             <div key={label} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:T.muted}}><div style={{width:14,height:14,borderRadius:3,background:bg}}></div>{label}</div>
           ))}
         </div>
