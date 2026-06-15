@@ -142,7 +142,7 @@ const TEAM_NAME_MAP = {
   "Germany":"Germany","Curaçao":"Curacao","Curacao":"Curacao","Netherlands":"Netherlands",
   "Japan":"Japan","Ivory Coast":"Ivory Coast","Côte d'Ivoire":"Ivory Coast",
   "Ecuador":"Ecuador","Sweden":"Sweden","Tunisia":"Tunisia","Spain":"Spain",
-  "Cape Verde":"Cape Verde","Belgium":"Belgium","Egypt":"Egypt",
+  "Cape Verde":"Cape Verde","Cabo Verde":"Cape Verde","Cape Verde Islands":"Cape Verde","Belgium":"Belgium","Egypt":"Egypt",
   "Saudi Arabia":"Saudi Arabia","Uruguay":"Uruguay","Iran":"Iran",
   "New Zealand":"New Zealand","France":"France","Senegal":"Senegal",
   "Iraq":"Iraq","Norway":"Norway","Argentina":"Argentina","Algeria":"Algeria",
