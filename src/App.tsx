@@ -2609,9 +2609,15 @@ export default function App() {
                 <div key={lives} style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                     <span style={{fontSize:13}}>{"❤️".repeat(lives)}</span>
-                    <span style={{fontSize:11,color:T.muted}}>{lives} life{lives!==1?"s":""} — {groups[lives].length} player{groups[lives].length!==1?"s":""}</span>
+                    <span style={{fontSize:11,color:T.muted}}>{lives===1?"1 life":`${lives} lives`} — {groups[lives].length} player{groups[lives].length!==1?"s":""}</span>
                   </div>
-                  <div style={{fontSize:12,color:T.text,lineHeight:1.6}}>{groups[lives].sort().join(", ")}</div>
+                  <div style={{fontSize:12,color:T.text,lineHeight:1.6}}>
+                    {groups[lives].sort().map((name,i)=>(
+                      <span key={name} style={name===activePlayer?.name?{color:T.red,fontWeight:700}:undefined}>
+                        {name}{i<groups[lives].length-1?", ":""}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               ))}
               {groups.out&&(
@@ -2620,7 +2626,13 @@ export default function App() {
                     <span style={{fontSize:13}}>💀</span>
                     <span style={{fontSize:11,color:T.muted}}>Eliminated — {groups.out.length} player{groups.out.length!==1?"s":""}</span>
                   </div>
-                  <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>{groups.out.sort().join(", ")}</div>
+                  <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>
+                    {groups.out.sort().map((name,i)=>(
+                      <span key={name} style={name===activePlayer?.name?{color:T.red,fontWeight:700}:undefined}>
+                        {name}{i<groups.out.length-1?", ":""}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
