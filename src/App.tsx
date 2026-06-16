@@ -340,6 +340,7 @@ export default function App() {
   const [howardsResult, setHowardsResult] = useState(null);
   const [popupSlides, setPopupSlides] = useState(null); // { slides:[{icon,title,body}], key }
   const [popupIdx, setPopupIdx] = useState(0);
+  const [showStandings, setShowStandings] = useState(false);
   const toastRef = useRef(null);
 
   // ── Admin screen state, lifted to App level ────────────────────────────
@@ -2548,16 +2549,19 @@ export default function App() {
             <button style={{display:"flex",alignItems:"center",gap:10,background:"none",border:"none",cursor:"pointer",padding:0}} onClick={()=>setScreen("profile")}>
               <span style={{fontSize:26}}>🏆</span>
               <div style={{textAlign:"left"}}>
-                <div style={{fontSize:16,fontWeight:900,color:T.amber,lineHeight:1.2}}>Last Person Standing 2026</div>
+                <div style={{fontSize:16,fontWeight:900,color:T.amber,lineHeight:1.2}}>LPS 2026</div>
                 <div style={{fontSize:10,color:T.muted,letterSpacing:3,textTransform:"uppercase"}}>The Ray Gunn Cup</div>
               </div>
             </button>
-            <button onClick={()=>setScreen("profile")} style={{display:"flex",alignItems:"center",gap:8,background:T.amberBg,border:`1px solid ${T.amberBorder}`,borderRadius:10,padding:"9px 14px",cursor:"pointer",flexShrink:0}}>
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:14,fontWeight:800,color:T.amber,lineHeight:1.2}}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</div>
-                {activePlayer&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{"❤️".repeat(activePlayer.lives)}</div>}
-              </div>
-            </button>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              <button onClick={()=>setShowStandings(true)} aria-label="Standings" style={{width:36,height:36,borderRadius:"50%",background:T.amberBg,border:`1px solid ${T.amberBorder}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",padding:0,fontSize:16,flexShrink:0}}>💀</button>
+              <button onClick={()=>setScreen("profile")} style={{display:"flex",alignItems:"center",gap:8,background:T.amberBg,border:`1px solid ${T.amberBorder}`,borderRadius:10,padding:"9px 14px",cursor:"pointer",flexShrink:0}}>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:14,fontWeight:800,color:T.amber,lineHeight:1.2}}>{activePlayer?`👤 ${activePlayer.name}`:"Sign in →"}</div>
+                  {activePlayer&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{"❤️".repeat(activePlayer.lives)}</div>}
+                </div>
+              </button>
+            </div>
           </div>
           {/* Row 2: Nav tabs */}
           <div style={{display:"flex",borderTop:`1px solid rgba(255,255,255,0.06)`}}>
@@ -2585,6 +2589,44 @@ export default function App() {
           <button style={{background:"none",border:"none",color:T.muted,fontSize:11,cursor:"pointer",opacity:0.5}} onClick={()=>setScreen("admin")}>👑 Admin</button>
         </footer>
       )}
+      {/* ── STANDINGS POPUP ── */}
+      {showStandings&&(()=>{
+        const groups = {};
+        players.forEach(p=>{
+          const key = p.eliminated ? "out" : p.lives;
+          if(!groups[key]) groups[key]=[];
+          groups[key].push(p.name);
+        });
+        const liveKeys = Object.keys(groups).filter(k=>k!=="out").map(Number).sort((a,b)=>b-a);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowStandings(false)}>
+            <div style={{...card,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                <div style={{...sec,margin:0}}>💀 Standings — {players.length} players</div>
+                <button onClick={()=>setShowStandings(false)} style={{background:"none",border:"none",color:T.muted,fontSize:18,cursor:"pointer",padding:4}}>✕</button>
+              </div>
+              {liveKeys.map(lives=>(
+                <div key={lives} style={{marginBottom:12,paddingBottom:12,borderBottom:`1px solid ${T.border}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                    <span style={{fontSize:13}}>{"❤️".repeat(lives)}</span>
+                    <span style={{fontSize:11,color:T.muted}}>{lives} life{lives!==1?"s":""} — {groups[lives].length} player{groups[lives].length!==1?"s":""}</span>
+                  </div>
+                  <div style={{fontSize:12,color:T.text,lineHeight:1.6}}>{groups[lives].sort().join(", ")}</div>
+                </div>
+              ))}
+              {groups.out&&(
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                    <span style={{fontSize:13}}>💀</span>
+                    <span style={{fontSize:11,color:T.muted}}>Eliminated — {groups.out.length} player{groups.out.length!==1?"s":""}</span>
+                  </div>
+                  <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>{groups.out.sort().join(", ")}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {/* ── POPUP CAROUSEL ── */}
       {popupSlides&&popupSlides.slides.length>0&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
