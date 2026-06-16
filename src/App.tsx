@@ -2599,8 +2599,8 @@ export default function App() {
         });
         const liveKeys = Object.keys(groups).filter(k=>k!=="out").map(Number).sort((a,b)=>b-a);
         return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowStandings(false)}>
-            <div style={{...card,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowStandings(false)}>
+            <div style={{...card,background:"#0f2008",border:`1px solid ${T.amberBorder}`,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
                 <div style={{...sec,margin:0}}>💀 Standings — {players.length} players</div>
                 <button onClick={()=>setShowStandings(false)} style={{background:"none",border:"none",color:T.muted,fontSize:18,cursor:"pointer",padding:4}}>✕</button>
