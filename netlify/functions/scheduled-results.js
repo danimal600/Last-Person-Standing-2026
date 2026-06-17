@@ -269,6 +269,29 @@ exports.handler = async () => {
   const finishedMatches = allMatches.filter(m => m.status === "FINISHED");
   const notFinished = allMatches.filter(m => m.status !== "FINISHED");
 
+  // TEMP DIAGNOSTIC — find Austria/Jordan specifically and log exactly what
+  // the API returned and why it might be getting skipped, regardless of the
+  // normal flow below. Safe to remove once the root cause is found.
+  const diagMatch = allMatches.find(m =>
+    (m.homeTeam?.name||"").includes("Austria") || (m.awayTeam?.name||"").includes("Jordan") ||
+    (m.homeTeam?.name||"").includes("Jordan") || (m.awayTeam?.name||"").includes("Austria")
+  );
+  if(diagMatch) {
+    const dHome = TEAM_NAME_MAP[diagMatch.homeTeam?.name] || diagMatch.homeTeam?.name;
+    const dAway = TEAM_NAME_MAP[diagMatch.awayTeam?.name] || diagMatch.awayTeam?.name;
+    const dEtDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(diagMatch.utcDate));
+    console.log("DIAG Austria/Jordan raw:", JSON.stringify({
+      rawHome: diagMatch.homeTeam?.name, rawAway: diagMatch.awayTeam?.name,
+      mappedHome: dHome, mappedAway: dAway,
+      status: diagMatch.status, utcDate: diagMatch.utcDate, etDate: dEtDate,
+      score: diagMatch.score,
+      alreadyLoggedCheck: results[`${dEtDate}|${dHome}`],
+      ourFixtureMatch: GROUP_MATCHES.find(m => m.etDate===dEtDate && ((m.home===dHome&&m.away===dAway)||(m.home===dAway&&m.away===dHome)))
+    }));
+  } else {
+    console.log("DIAG: No match found in API response containing Austria or Jordan at all");
+  }
+
   const teamPairKeys = (m) => {
     const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
     const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
