@@ -269,29 +269,6 @@ exports.handler = async () => {
   const finishedMatches = allMatches.filter(m => m.status === "FINISHED");
   const notFinished = allMatches.filter(m => m.status !== "FINISHED");
 
-  // TEMP DIAGNOSTIC — find Austria/Jordan specifically and log exactly what
-  // the API returned and why it might be getting skipped, regardless of the
-  // normal flow below. Safe to remove once the root cause is found.
-  const diagMatch = allMatches.find(m =>
-    (m.homeTeam?.name||"").includes("Austria") || (m.awayTeam?.name||"").includes("Jordan") ||
-    (m.homeTeam?.name||"").includes("Jordan") || (m.awayTeam?.name||"").includes("Austria")
-  );
-  if(diagMatch) {
-    const dHome = TEAM_NAME_MAP[diagMatch.homeTeam?.name] || diagMatch.homeTeam?.name;
-    const dAway = TEAM_NAME_MAP[diagMatch.awayTeam?.name] || diagMatch.awayTeam?.name;
-    const dEtDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(diagMatch.utcDate));
-    console.log("DIAG Austria/Jordan raw:", JSON.stringify({
-      rawHome: diagMatch.homeTeam?.name, rawAway: diagMatch.awayTeam?.name,
-      mappedHome: dHome, mappedAway: dAway,
-      status: diagMatch.status, utcDate: diagMatch.utcDate, etDate: dEtDate,
-      score: diagMatch.score,
-      alreadyLoggedCheck: results[`${dEtDate}|${dHome}`],
-      ourFixtureMatch: GROUP_MATCHES.find(m => m.etDate===dEtDate && ((m.home===dHome&&m.away===dAway)||(m.home===dAway&&m.away===dHome)))
-    }));
-  } else {
-    console.log("DIAG: No match found in API response containing Austria or Jordan at all");
-  }
-
   const teamPairKeys = (m) => {
     const home = TEAM_NAME_MAP[m.homeTeam?.name] || m.homeTeam?.name;
     const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
@@ -312,14 +289,20 @@ exports.handler = async () => {
     const home = TEAM_NAME_MAP[match.homeTeam?.name] || match.homeTeam?.name;
     const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
     const etDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
-    if(results[`${etDate}|${home}`]) return; // already logged
     const ourMatch = GROUP_MATCHES.find(m => m.etDate===etDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
       || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
           const f = koFixtures[s.id];
           return (f.home===home&&f.away===away)||(f.home===away&&f.away===home);
         });
-    if(!newlyFinishedByDate[etDate]) newlyFinishedByDate[etDate] = [];
-    newlyFinishedByDate[etDate].push({match, home, away, etDate, ourMatchId: ourMatch?.id});
+    // CRITICAL: use the fixture's pickDate (early-hours kickoffs, e.g. 00:00 ET,
+    // belong to the PREVIOUS calendar day's pick-deadline — see prevDateStr/
+    // earlyHours above), NOT the raw API etDate. Logging under the wrong date
+    // means getDayPick/results lookups in App.jsx (which key off pickDate)
+    // never find this result, silently leaving the Grid/lives stuck forever.
+    const pickDate = ourMatch?.pickDate || etDate;
+    if(results[`${pickDate}|${home}`]) return; // already logged
+    if(!newlyFinishedByDate[pickDate]) newlyFinishedByDate[pickDate] = [];
+    newlyFinishedByDate[pickDate].push({match, home, away, pickDate, ourMatchId: ourMatch?.id});
   });
 
   const active = players.filter(p=>!p.eliminated&&p.lives>0);
@@ -327,8 +310,8 @@ exports.handler = async () => {
   const updatedResults = {...results};
 
   // Step 1: Log results for all newly finished matches (across all dates)
-  for(const [etDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
-    for(const {match, home, away, etDate:pd, ourMatchId} of dayMatches) {
+  for(const [groupDate, dayMatches] of Object.entries(newlyFinishedByDate)) {
+    for(const {match, home, away, pickDate:pd, ourMatchId} of dayMatches) {
       const score = match.score.fullTime;
       const winnerSide = match.score?.winner; // "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null
       let isDraw, winTeam, loseTeam;
