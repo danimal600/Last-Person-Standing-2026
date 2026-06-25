@@ -86,6 +86,20 @@ const ALL_GROUP_MATCHES_RAW = [
   { id:72, etDate:"2026-06-27", home:"Jordan",         away:"Argentina",      group:"J", kickoffET:"22:00" },
 ];
 
+// UK TV channel for each group stage match (BBC One/iPlayer or ITV1/ITV4/ITVX)
+// Source: ESPN/BBC/ITV confirmed schedules
+const UK_CHANNEL = {
+  1:"ITV",2:"ITV",3:"BBC",4:"BBC",5:"ITV",6:"BBC",7:"BBC",8:"ITV",
+  9:"ITV",10:"ITV",11:"BBC",12:"ITV",13:"ITV",14:"BBC",15:"ITV",16:"BBC",
+  17:"BBC",18:"BBC",19:"ITV",20:"BBC",21:"BBC",22:"ITV",23:"ITV",24:"ITV",
+  25:"BBC",26:"ITV",27:"ITV",28:"ITV",29:"BBC",30:"ITV",31:"BBC",32:"ITV",
+  33:"ITV",34:"BBC",35:"BBC",36:"ITV",37:"BBC",38:"ITV",39:"BBC",40:"ITV",
+  41:"BBC",42:"BBC",43:"ITV",44:"ITV",45:"ITV",46:"BBC",47:"BBC",48:"ITV",
+  49:"ITV",50:"ITV4",51:"BBC",52:"ITV",53:"ITV",54:"BBC",55:"ITV",56:"BBC",
+  57:"BBC",58:"ITV",59:"ITV",60:"BBC",61:"BBC",62:"ITV",63:"ITV",64:"BBC",
+  65:"ITV",66:"BBC",67:"ITV",68:"BBC",69:"BBC",70:"ITV",71:"ITV",72:"BBC",
+};
+
 const KNOCKOUT_SLOTS = [
   { id:73,  etDate:"2026-06-28", slot:"R32-1",  phase:"L32_L16", kickoffET:"15:00" },
   { id:74,  etDate:"2026-06-29", slot:"R32-2",  phase:"L32_L16", kickoffET:"16:30" },
@@ -1531,7 +1545,10 @@ export default function App() {
           {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
           {m.away?`${f(m.away)} ${m.away}`:"TBD"}
         </div>
-        <span style={{fontSize:11,color:isLive?T.red:T.muted,flexShrink:0,marginLeft:4}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinishedFallback?"":fmtBST(m.kickoffBST)+" BST"}</span>
+        <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+          <span style={{fontSize:11,color:isLive?T.red:T.muted}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinishedFallback?"":fmtBST(m.kickoffBST)+" BST"}</span>
+          {UK_CHANNEL[m.id]&&<span style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:3,background:UK_CHANNEL[m.id]==="BBC"?"rgba(255,60,60,0.25)":UK_CHANNEL[m.id]==="ITV4"?"rgba(91,168,224,0.25)":"rgba(0,132,61,0.25)",color:UK_CHANNEL[m.id]==="BBC"?"#ff8080":UK_CHANNEL[m.id]==="ITV4"?"#7ec8f0":"#5bd48a",flexShrink:0}}>{UK_CHANNEL[m.id]}</span>}
+        </div>
       </div>
     );
   }
