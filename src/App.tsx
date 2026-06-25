@@ -1283,13 +1283,6 @@ export default function App() {
     const player = players.find(p=>p.id===pid);
     if(!player) return;
 
-    // Check: player can only have ONE pick across the whole day
-    const existingDayPick = getDayPick(player, pickDate);
-    if (existingDayPick && existingDayPick.matchId !== String(matchId)) {
-      toast_("error","You already have a pick for today — clear it first to change.");
-      return;
-    }
-
     // Check phase repeat restriction
     const used = getPicksInPhase(player, pickDate);
     if(choice!=="Draw" && used.includes(choice) && player.picks[String(matchId)]!==choice){
@@ -1300,6 +1293,16 @@ export default function App() {
     // Optimistic update
     setPlayers(prev=>prev.map(p=>p.id!==pid?p:{...p,picks:{...p.picks,[String(matchId)]:choice}}));
     toast_("success",`${f(choice)} ${choice==="Draw"?"Draw":choice} locked in!`);
+
+    // Delete any OTHER pick rows for this player on this pick_date (different match_id)
+    // — prevents stale duplicate rows building up when a player changes their mind
+    // and picks a different match on the same day. Safe to run unconditionally since
+    // the new pick hasn't been written yet, so we're just clearing out the old one.
+    await supabase.from("picks")
+      .delete()
+      .eq("player_id", pid)
+      .eq("pick_date", pickDate)
+      .neq("match_id", String(matchId));
 
     const { error } = await supabase.from("picks").upsert(
       { player_id: pid, pick_date: pickDate, match_id: String(matchId), choice },
@@ -2592,17 +2595,19 @@ export default function App() {
       {/* ── STANDINGS POPUP ── */}
       {showStandings&&(()=>{
         const groups = {};
-        players.forEach(p=>{
-          const key = p.eliminated ? "out" : p.lives;
+        players.filter(p=>!p.eliminated).forEach(p=>{
+          const key = p.lives;
           if(!groups[key]) groups[key]=[];
           groups[key].push(p.name);
         });
-        const liveKeys = Object.keys(groups).filter(k=>k!=="out").map(Number).sort((a,b)=>b-a);
+        const liveKeys = Object.keys(groups).map(Number).sort((a,b)=>b-a);
+        const activePlayers = players.filter(p=>!p.eliminated).length;
+        const eliminatedPlayers = players.filter(p=>p.eliminated);
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowStandings(false)}>
             <div style={{...card,background:"#0f2008",border:`1px solid ${T.amberBorder}`,width:"100%",maxWidth:420,maxHeight:"80vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-                <div style={{...sec,margin:0}}>💀 Standings — {players.length} players</div>
+                <div style={{...sec,margin:0}}>💀 Standings — {activePlayers} still alive</div>
                 <button onClick={()=>setShowStandings(false)} style={{background:"none",border:"none",color:T.muted,fontSize:18,cursor:"pointer",padding:4}}>✕</button>
               </div>
               {liveKeys.map(lives=>(
@@ -2620,16 +2625,16 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              {groups.out&&(
+              {eliminatedPlayers.length>0&&(
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
                     <span style={{fontSize:13}}>💀</span>
-                    <span style={{fontSize:11,color:T.muted}}>Eliminated — {groups.out.length} player{groups.out.length!==1?"s":""}</span>
+                    <span style={{fontSize:11,color:T.muted}}>Eliminated — {eliminatedPlayers.length} player{eliminatedPlayers.length!==1?"s":""}</span>
                   </div>
                   <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>
-                    {groups.out.sort().map((name,i)=>(
-                      <span key={name} style={name===activePlayer?.name?{color:T.red,fontWeight:700}:undefined}>
-                        {name}{i<groups.out.length-1?", ":""}
+                    {eliminatedPlayers.sort((a,b)=>a.name.localeCompare(b.name)).map((p,i)=>(
+                      <span key={p.name} style={p.name===activePlayer?.name?{color:T.red,fontWeight:700}:undefined}>
+                        {p.name}{i<eliminatedPlayers.length-1?", ":""}
                       </span>
                     ))}
                   </div>
