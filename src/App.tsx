@@ -1866,7 +1866,7 @@ export default function App() {
         const opts = phaseOf(d)==="GROUP" ? [m.home, m.away, "Draw"] : [m.home, m.away];
         opts.forEach(choice => {
           if(seen.has(choice)) return; seen.add(choice);
-          const pickers = players.filter(p => {const dp=getDayPick(p,d); return dp&&dp.choice===choice;});
+          const pickers = players.filter(p => !p.eliminated && (()=>{const dp=getDayPick(p,d); return dp&&dp.choice===choice;})());
           allChoices.push({choice, count: pickers.length, pickers});
         });
       });
