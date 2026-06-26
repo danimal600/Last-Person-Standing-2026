@@ -1105,71 +1105,60 @@ export default function App() {
 
   const checkAutoFixtures = useCallback(async (currentKoFixtures) => {
     try {
-      // Derive group standings directly from our own results table + GROUP_MATCHES
-      // This is more reliable than the standings API which has structural uncertainty
-      // with the new 12-group format
+      // Fetch standings from football-data.org via our proxy
+      const res = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fstandings");
+      if(!res.ok) { console.warn("Standings API error:", res.status); return; }
+      const data = await res.json();
+      const standings = data.standings || [];
 
+      console.log("Standings raw count:", standings.length);
+      if(standings.length > 0) console.log("First standing sample:", JSON.stringify(standings[0]).slice(0,200));
+
+      // Build group table — handle both GROUP_A style and any other format
       const groups = {};
-
-      // Build a points table for each group from GROUP_MATCHES + results
-      for(const m of GROUP_MATCHES) {
-        if(!m.group) continue;
-        if(!groups[m.group]) groups[m.group] = {};
-
-        const homeKey = `${m.pickDate}|${m.home}`;
-        const awayKey = `${m.pickDate}|${m.away}`;
-        const drawKey = `${m.pickDate}|Draw#${m.id}`;
-
-        const homeRes = results[homeKey];
-        const awayRes = results[awayKey];
-        const drawRes = results[drawKey];
-
-        // Initialise teams
-        for(const team of [m.home, m.away]) {
-          if(!groups[m.group][team]) groups[m.group][team] = {pts:0,gd:0,gf:0,played:0};
+      for(const standing of standings) {
+        // Accept any type that looks like a group (not just "TOTAL")
+        // Some WC APIs return HOME/AWAY/TOTAL per group, others just one entry
+        const t = standing.type;
+        if(t && t !== "TOTAL" && t !== "total" && standing.type) {
+          // If there are multiple types, only process TOTAL to avoid duplicates
+          const hasTotal = standings.some(s => s.group === standing.group && (s.type==="TOTAL"||s.type==="total"));
+          if(hasTotal) continue;
         }
 
-        if(homeRes==="win") {
-          groups[m.group][m.home].pts += 3;
-          groups[m.group][m.home].played++;
-          groups[m.group][m.away].played++;
-        } else if(awayRes==="win") {
-          groups[m.group][m.away].pts += 3;
-          groups[m.group][m.home].played++;
-          groups[m.group][m.away].played++;
-        } else if(drawRes==="win") {
-          groups[m.group][m.home].pts += 1;
-          groups[m.group][m.away].pts += 1;
-          groups[m.group][m.home].played++;
-          groups[m.group][m.away].played++;
-        }
-        // If no result yet, match hasn't been played — don't count
+        // Extract group letter — try multiple field paths
+        let group = null;
+        const raw = standing.group || standing.stage || "";
+        // Matches: "GROUP_A", "Group A", "A", "GROUP_STAGE_A"
+        const m = raw.match(/([A-L])$/i);
+        if(m) group = m[1].toUpperCase();
+        if(!group) continue;
+
+        if(!standing.table || !standing.table.length) continue;
+
+        groups[group] = standing.table.map(row => ({
+          team: TEAM_NAME_MAP[row.team?.name] || row.team?.shortName || row.team?.name,
+          points: row.points,
+          gd: row.goalDifference,
+          gf: row.goalsFor,
+          pos: row.position,
+          played: row.playedGames,
+        }));
+        console.log(`Group ${group}: ${groups[group].map(t=>t.team+"("+t.played+"g)").join(", ")}`);
       }
 
-      const allGroupsDone = Object.values(groups).every(g => {
-        const teams = Object.values(g);
-        return teams.length >= 4 && teams.every(t => t.played >= 3);
-      });
+      const allGroupsDone = Object.keys(groups).length >= 12 &&
+        Object.values(groups).every(g => g.length >= 4 && g.every(t => t.played >= 3));
 
       const newFixtures = {};
 
+      // Populate R32 for any group that has finished
       for(const [group, table] of Object.entries(groups)) {
-        // Group done when all 4 teams have played 3 games
-        const teams = Object.values(table);
-        const teamNames = Object.keys(table);
-        const done = teams.length >= 4 && teams.every(t => t.played >= 3);
+        const done = table.length >= 4 && table.every(t => t.played >= 3);
         if(!done) continue;
 
-        // Sort by points desc, then gd desc, then gf desc
-        const sorted = teamNames.sort((a,b) => {
-          const ta = table[a], tb = table[b];
-          if(tb.pts !== ta.pts) return tb.pts - ta.pts;
-          if(tb.gd !== ta.gd) return tb.gd - ta.gd;
-          return tb.gf - ta.gf;
-        });
-
-        const winner   = sorted[0];
-        const runnerUp = sorted[1];
+        const winner   = table.find(t=>t.pos===1)?.team;
+        const runnerUp = table.find(t=>t.pos===2)?.team;
         if(!winner || !runnerUp) continue;
 
         console.log(`Group ${group} done: 1st=${winner} 2nd=${runnerUp}`);
@@ -1177,11 +1166,10 @@ export default function App() {
         for(const [slotId, bracket] of Object.entries(R32_BRACKET)) {
           const sid = Number(slotId);
           if(currentKoFixtures[sid]?.home && currentKoFixtures[sid]?.away) continue;
-
-          if(bracket.home === `1${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].home = winner; }
-          if(bracket.away === `1${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].away = winner; }
-          if(bracket.home === `2${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].home = runnerUp; }
-          if(bracket.away === `2${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].away = runnerUp; }
+          if(bracket.home===`1${group}`) { newFixtures[sid]=newFixtures[sid]||{}; newFixtures[sid].home=winner; }
+          if(bracket.away===`1${group}`) { newFixtures[sid]=newFixtures[sid]||{}; newFixtures[sid].away=winner; }
+          if(bracket.home===`2${group}`) { newFixtures[sid]=newFixtures[sid]||{}; newFixtures[sid].home=runnerUp; }
+          if(bracket.away===`2${group}`) { newFixtures[sid]=newFixtures[sid]||{}; newFixtures[sid].away=runnerUp; }
         }
       }
 
@@ -1324,7 +1312,7 @@ export default function App() {
     } catch(e) {
       console.error("Auto fixtures error:", e);
     }
-  }, [loadAll, results]); // results needed to derive standings locally
+  }, [loadAll]); // eslint-disable-line
 
   // Check fixtures every 2 minutes (was 10 — now using local results so faster is fine)
   useEffect(() => {
@@ -2208,7 +2196,7 @@ export default function App() {
     const CARD_H = 76;
     const CARD_W = 148;
     const GAP    = 8;
-    const COL_GAP = 32;
+    const COL_GAP = 36;
     const GOLD = 'FFD700';
 
     const getResult = (slotId) => {
@@ -2324,12 +2312,15 @@ export default function App() {
 
     const Conn = ({topFY, botFY, targY, leftX}) => {
       const midFY = (topFY + botFY) / 2;
+      const mid = COL_GAP / 2;
       return (
-        <svg style={{position:'absolute',left:leftX,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'visible'}}>
-          <line x1={0} y1={topFY} x2={COL_GAP/2} y2={topFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={0} y1={botFY} x2={COL_GAP/2} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={COL_GAP/2} y1={topFY} x2={COL_GAP/2} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={COL_GAP/2} y1={midFY} x2={COL_GAP} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
+        <svg style={{position:'absolute',left:leftX,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'hidden'}}>
+          <line x1={0} y1={topFY} x2={mid} y2={topFY} stroke={T.amberBorder} strokeWidth={1}/>
+          <line x1={0} y1={botFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
+          <line x1={mid} y1={topFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
+          {/* L-shape: vertical from midpoint to target row, then horizontal */}
+          <line x1={mid} y1={midFY} x2={mid} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
+          <line x1={mid} y1={targY} x2={COL_GAP} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
         </svg>
       );
     };
@@ -2394,13 +2385,14 @@ export default function App() {
             ))}
 
             {/* SF→Final (solid) + SF→3rd place (dashed) */}
-            <svg style={{position:'absolute',left:4*(CARD_W+COL_GAP)-COL_GAP,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'visible'}}>
-              {/* Winners to Final */}
+            <svg style={{position:'absolute',left:4*(CARD_W+COL_GAP)-COL_GAP,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'hidden'}}>
+              {/* Winners: horizontal out → vertical join → vertical to final row → horizontal in */}
               <line x1={0} y1={sfPos[101]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[101]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
               <line x1={0} y1={sfPos[102]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[102]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
               <line x1={COL_GAP/2} y1={sfPos[101]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[102]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
+              <line x1={COL_GAP/2} y1={finalY+CARD_H/2} x2={COL_GAP/2} y2={finalY+CARD_H/2} stroke="#FFD700" strokeWidth={1.5}/>
               <line x1={COL_GAP/2} y1={finalY+CARD_H/2} x2={COL_GAP} y2={finalY+CARD_H/2} stroke="#FFD700" strokeWidth={1.5}/>
-              {/* Losers to 3rd place (dashed) */}
+              {/* Losers to 3rd place (dashed L-shape) */}
               <line x1={0} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[101]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
               <line x1={0} y1={sfPos[102]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[102]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
               <line x1={COL_GAP/4} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
@@ -3044,20 +3036,21 @@ export default function App() {
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
             onClick={e=>{e.stopPropagation();setBracketPopup(null);}}>
-            <div style={{...card,background:"#0f2008",border:`1px solid ${T.amberBorder}`,width:"100%",maxWidth:360,maxHeight:"70vh",overflowY:"auto",position:"relative"}}
+            <div style={{background:"#0f2008",border:`1px solid ${T.amberBorder}`,borderRadius:12,width:"100%",maxWidth:360,display:"flex",flexDirection:"column",maxHeight:"60vh"}}
               onClick={e=>e.stopPropagation()}>
-              {/* Sticky close button always visible at top */}
-              <div style={{position:"sticky",top:0,zIndex:10,background:"#0f2008",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,marginBottom:8}}>
+              {/* Close button row — always visible, never scrolls */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
                 <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:T.amber}}>{slotLabel(slot?.slot||"")}</div>
                 <button
                   onClick={e=>{e.stopPropagation();e.preventDefault();setBracketPopup(null);}}
-                  style={{background:"rgba(255,255,255,0.1)",border:`1px solid ${T.border}`,color:T.text,fontSize:15,cursor:"pointer",padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1,flexShrink:0}}>✕</button>
+                  style={{background:"rgba(255,255,255,0.1)",border:`1px solid ${T.border}`,color:T.text,fontSize:15,cursor:"pointer",padding:"6px 12px",borderRadius:6,fontWeight:700,lineHeight:1,flexShrink:0}}>✕</button>
               </div>
-              <div style={{padding:"0 14px 14px"}}>
-              <div style={{fontSize:11,color:T.muted,marginBottom:14}}>
-                {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
-                {winner&&<span style={{color:T.green,marginLeft:8}}>✓ Full Time</span>}
-              </div>
+              {/* Scrollable content */}
+              <div style={{overflowY:"auto",padding:"12px 14px 14px",flex:1}}>
+                <div style={{fontSize:11,color:T.muted,marginBottom:12}}>
+                  {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
+                  {winner&&<span style={{color:T.green,marginLeft:8}}>✓ Full Time</span>}
+                </div>
               {[["home",fix.home],["away",fix.away]].map(([side,team])=>{
                 const isWinner = winner===team;
                 const isLoser  = loser===team;
