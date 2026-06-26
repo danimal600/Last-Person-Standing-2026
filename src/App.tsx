@@ -1105,53 +1105,40 @@ export default function App() {
 
   const checkAutoFixtures = useCallback(async (currentKoFixtures) => {
     try {
-      // Fetch standings from football-data.org via our proxy
-      const res = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fstandings");
-      if(!res.ok) { console.warn("Standings API error:", res.status); return; }
+      // API-Football returns all 12 group tables properly
+      // GET /standings?league=1&season=2026
+      const res = await fetch("/.netlify/functions/apifootball?path=standings%3Fleague%3D1%26season%3D2026");
+      if(!res.ok) { console.warn("API-Football standings error:", res.status); return; }
       const data = await res.json();
-      const standings = data.standings || [];
 
-      // API returns a single GROUP_STAGE standing with all 48 teams, group=null
-      // Find the TOTAL type table
-      const totalStanding = standings.find(s => s.type==="TOTAL") || standings[0];
-      if(!totalStanding?.table?.length) { console.warn("No standings table found"); return; }
+      // API-Football response: { response: [ { league: { standings: [[...groupA],[...groupB],...] } } ] }
+      const leagueData = data.response?.[0]?.league;
+      if(!leagueData?.standings) { console.warn("No standings in API-Football response"); return; }
 
-      // Build a lookup: team name → {points, gd, gf, played, pos}
-      const teamStats = {};
-      for(const row of totalStanding.table) {
-        const name = TEAM_NAME_MAP[row.team?.name] || TEAM_NAME_MAP[row.team?.shortName] || row.team?.name;
-        if(name) teamStats[name] = {
-          points: row.points,
-          gd: row.goalDifference,
-          gf: row.goalsFor,
-          played: row.playedGames,
-          pos: row.position,
-        };
-      }
-
-      // Derive group membership from GROUP_MATCHES (we know exactly which teams are in each group)
-      const groupTeams = {};
-      for(const m of GROUP_MATCHES) {
-        if(!m.group) continue;
-        if(!groupTeams[m.group]) groupTeams[m.group] = new Set();
-        groupTeams[m.group].add(m.home);
-        groupTeams[m.group].add(m.away);
-      }
-
-      // Build per-group table using API stats for each team
+      // standings is an array of arrays — one array per group
+      // Each team row has: rank, team.name, points, goalsDiff, all.played etc
       const groups = {};
-      for(const [group, teamSet] of Object.entries(groupTeams)) {
-        const table = [...teamSet].map(name => ({
-          team: name,
-          ...(teamStats[name] || {points:0,gd:0,gf:0,played:0,pos:99}),
-        })).sort((a,b) => b.points-a.points || b.gd-a.gd || b.gf-a.gf);
+      for(const groupTable of leagueData.standings) {
+        if(!groupTable?.length) continue;
+        // Group name is in each row's group field e.g. "Group A"
+        const groupRaw = groupTable[0]?.group || "";
+        const m = groupRaw.match(/Group ([A-L])/i);
+        if(!m) continue;
+        const group = m[1].toUpperCase();
 
-        // Assign positions within group
-        table.forEach((t,i) => t.pos = i+1);
-        groups[group] = table;
-        const done = table.length===4 && table.every(t=>t.played>=3);
-        if(done) console.log(`Group ${group} done: 1st=${table[0].team} 2nd=${table[1].team}`);
+        groups[group] = groupTable.map(row => ({
+          team: TEAM_NAME_MAP[row.team?.name] || row.team?.name,
+          points: row.points,
+          gd: row.goalsDiff,
+          gf: row.all?.goals?.for || 0,
+          played: row.all?.played || 0,
+          pos: row.rank,
+        }));
+        const done = groups[group].length===4 && groups[group].every(t=>t.played>=3);
+        if(done) console.log(`Group ${group} done: 1st=${groups[group][0].team} 2nd=${groups[group][1].team}`);
       }
+
+      console.log(`Parsed ${Object.keys(groups).length} groups from API-Football`);
 
       const allGroupsDone = Object.keys(groups).length >= 12 &&
         Object.values(groups).every(g => g.length >= 4 && g.every(t => t.played >= 3));
@@ -1166,8 +1153,6 @@ export default function App() {
         const winner   = table.find(t=>t.pos===1)?.team;
         const runnerUp = table.find(t=>t.pos===2)?.team;
         if(!winner || !runnerUp) continue;
-
-        console.log(`Group ${group} done: 1st=${winner} 2nd=${runnerUp}`);
 
         for(const [slotId, bracket] of Object.entries(R32_BRACKET)) {
           const sid = Number(slotId);
@@ -1320,11 +1305,11 @@ export default function App() {
     }
   }, [loadAll]); // eslint-disable-line
 
-  // Check fixtures every 2 minutes (was 10 — now using local results so faster is fine)
+  // Check fixtures every 30 minutes — API-Football free tier is 100 req/day
   useEffect(() => {
     const run = () => checkAutoFixtures(koFixtures);
     run();
-    const i = setInterval(run, 2 * 60 * 1000);
+    const i = setInterval(run, 30 * 60 * 1000);
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
@@ -3040,48 +3025,42 @@ export default function App() {
         const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
         const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
         return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"60px 20px 20px",overflowY:"auto"}}
-            onClick={e=>{e.stopPropagation();setBracketPopup(null);}}>
-            <div style={{background:"#0f2008",border:`1px solid ${T.amberBorder}`,borderRadius:12,width:"100%",maxWidth:360,flexShrink:0}}
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,0.85)"}}
+            onClick={()=>setBracketPopup(null)}>
+            <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:"min(340px,90vw)",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,overflow:"hidden"}}
               onClick={e=>e.stopPropagation()}>
-              {/* Close button row — always visible, never scrolls */}
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-                <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:T.amber}}>{slotLabel(slot?.slot||"")}</div>
-                <button
-                  onClick={e=>{e.stopPropagation();e.preventDefault();setBracketPopup(null);}}
-                  style={{background:"rgba(255,255,255,0.1)",border:`1px solid ${T.border}`,color:T.text,fontSize:15,cursor:"pointer",padding:"6px 12px",borderRadius:6,fontWeight:700,lineHeight:1,flexShrink:0}}>✕</button>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a"}}>
+                <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:"#c8a840"}}>{slotLabel(slot?.slot||"")}</span>
+                <button onClick={e=>{e.stopPropagation();setBracketPopup(null);}} style={{background:"rgba(255,255,255,0.1)",border:"1px solid #3a4a2a",color:"#d0c89e",fontSize:16,cursor:"pointer",padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1}}>✕</button>
               </div>
-              {/* Content */}
-              <div style={{padding:"12px 14px 14px"}}>
-                <div style={{fontSize:11,color:T.muted,marginBottom:12}}>
+              <div style={{padding:"12px 14px 16px"}}>
+                <div style={{fontSize:11,color:"#8a9e72",marginBottom:12}}>
                   {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
-                  {winner&&<span style={{color:T.green,marginLeft:8}}>✓ Full Time</span>}
+                  {winner&&<span style={{color:"#4CAF50",marginLeft:8}}>✓ Full Time</span>}
                 </div>
-              {[["home",fix.home],["away",fix.away]].map(([side,team])=>{
-                const isWinner = winner===team;
-                const isLoser  = loser===team;
-                const score    = scoreDisp ? (side==="home"?scoreDisp.h:scoreDisp.a) : null;
-                return (
-                  <div key={side} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
-                    background:isWinner?"rgba(0,132,61,0.2)":isLoser?"rgba(160,30,30,0.15)":"rgba(255,255,255,0.04)",
-                    borderRadius:8,marginBottom:6,
-                    border:`1px solid ${isWinner?T.greenBorder:isLoser?"rgba(160,30,30,0.3)":T.border}`}}>
-                    <span style={{fontSize:24,flexShrink:0}}>{f(team)}</span>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:14,fontWeight:700,color:isWinner?T.amber:isLoser?"#888":T.text}}>{team}</div>
-                      {isWinner&&<div style={{fontSize:10,color:T.green}}>Winner ✓</div>}
+                {[["home",fix.home],["away",fix.away]].map(([side,team])=>{
+                  const isWinner=winner===team, isLoser=loser===team;
+                  const score=scoreDisp?(side==="home"?scoreDisp.h:scoreDisp.a):null;
+                  return (
+                    <div key={side} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                      background:isWinner?"rgba(0,132,61,0.2)":isLoser?"rgba(160,30,30,0.15)":"rgba(255,255,255,0.04)",
+                      borderRadius:8,marginBottom:6,border:"1px solid "+(isWinner?"#2a5a2a":isLoser?"rgba(160,30,30,0.3)":"#2a3a1a")}}>
+                      <span style={{fontSize:22,flexShrink:0}}>{f(team)}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,fontWeight:700,color:isWinner?"#c8a840":isLoser?"#888":"#d0c89e"}}>{team}</div>
+                        {isWinner&&<div style={{fontSize:10,color:"#4CAF50"}}>Winner ✓</div>}
+                      </div>
+                      {score!==null&&<span style={{fontSize:22,fontWeight:900,color:"#c8a840",flexShrink:0}}>{score}</span>}
                     </div>
-                    {score!==null&&<span style={{fontSize:22,fontWeight:900,color:T.amber,flexShrink:0}}>{score}</span>}
+                  );
+                })}
+                {myPickIsThis&&(
+                  <div style={{marginTop:8,padding:"8px 12px",background:"rgba(200,168,64,0.15)",borderRadius:8,fontSize:12,color:"#c8a840"}}>
+                    👤 Your pick: {f(myPick.choice)} {myPick.choice}
+                    {winner&&myPick.choice===winner&&<span style={{marginLeft:6,color:"#4CAF50"}}>✓ Correct</span>}
+                    {winner&&myPick.choice!==winner&&<span style={{marginLeft:6,color:"#ff8080"}}>✗ Wrong</span>}
                   </div>
-                );
-              })}
-              {myPickIsThis&&(
-                <div style={{marginTop:8,padding:"8px 12px",background:T.amberBg,borderRadius:8,fontSize:12,color:T.amber}}>
-                  👤 Your pick: {f(myPick.choice)} {myPick.choice}
-                  {winner&&myPick.choice===winner&&<span style={{marginLeft:6,color:T.green}}>✓ Correct</span>}
-                  {winner&&myPick.choice!==winner&&<span style={{marginLeft:6,color:"#ff8080"}}>✗ Wrong</span>}
-                </div>
-              )}
+                )}
               </div>
             </div>
           </div>
