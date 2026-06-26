@@ -1105,67 +1105,83 @@ export default function App() {
 
   const checkAutoFixtures = useCallback(async (currentKoFixtures) => {
     try {
-      // Get group standings from API
-      const res = await fetch(
-        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fstandings"
-      );
-      if(!res.ok) return;
-      const data = await res.json();
-      const standings = data.standings || [];
+      // Derive group standings directly from our own results table + GROUP_MATCHES
+      // This is more reliable than the standings API which has structural uncertainty
+      // with the new 12-group format
 
-      // Build group results: { A: [{team, points, gd, gf, pos}], B: [...], ... }
       const groups = {};
-      for(const standing of standings) {
-        if(standing.type !== "TOTAL") continue;
-        const group = standing.group?.replace("GROUP_","") || standing.stage;
-        if(!group || group.length !== 1) continue;
-        groups[group] = standing.table.map(row => ({
-          team: TEAM_NAME_MAP[row.team?.name] || row.team?.name,
-          points: row.points,
-          gd: row.goalDifference,
-          gf: row.goalsFor,
-          pos: row.position,
-          played: row.playedGames,
-        }));
+
+      // Build a points table for each group from GROUP_MATCHES + results
+      for(const m of GROUP_MATCHES) {
+        if(!m.group) continue;
+        if(!groups[m.group]) groups[m.group] = {};
+
+        const homeKey = `${m.pickDate}|${m.home}`;
+        const awayKey = `${m.pickDate}|${m.away}`;
+        const drawKey = `${m.pickDate}|Draw#${m.id}`;
+
+        const homeRes = results[homeKey];
+        const awayRes = results[awayKey];
+        const drawRes = results[drawKey];
+
+        // Initialise teams
+        for(const team of [m.home, m.away]) {
+          if(!groups[m.group][team]) groups[m.group][team] = {pts:0,gd:0,gf:0,played:0};
+        }
+
+        if(homeRes==="win") {
+          groups[m.group][m.home].pts += 3;
+          groups[m.group][m.home].played++;
+          groups[m.group][m.away].played++;
+        } else if(awayRes==="win") {
+          groups[m.group][m.away].pts += 3;
+          groups[m.group][m.home].played++;
+          groups[m.group][m.away].played++;
+        } else if(drawRes==="win") {
+          groups[m.group][m.home].pts += 1;
+          groups[m.group][m.away].pts += 1;
+          groups[m.group][m.home].played++;
+          groups[m.group][m.away].played++;
+        }
+        // If no result yet, match hasn't been played — don't count
       }
 
-      // Check if group stage is finished (all teams played 3 games)
-      const allGroupsDone = Object.values(groups).every(g =>
-        g.length >= 4 && g.every(t => t.played >= 3)
-      );
+      const allGroupsDone = Object.values(groups).every(g => {
+        const teams = Object.values(g);
+        return teams.length >= 4 && teams.every(t => t.played >= 3);
+      });
 
-      // Populate R32 for any group that has finished
       const newFixtures = {};
 
       for(const [group, table] of Object.entries(groups)) {
-        const done = table.length >= 4 && table.every(t => t.played >= 3);
+        // Group done when all 4 teams have played 3 games
+        const teams = Object.values(table);
+        const teamNames = Object.keys(table);
+        const done = teams.length >= 4 && teams.every(t => t.played >= 3);
         if(!done) continue;
 
-        const winner = table.find(t=>t.pos===1)?.team;
-        const runnerUp = table.find(t=>t.pos===2)?.team;
+        // Sort by points desc, then gd desc, then gf desc
+        const sorted = teamNames.sort((a,b) => {
+          const ta = table[a], tb = table[b];
+          if(tb.pts !== ta.pts) return tb.pts - ta.pts;
+          if(tb.gd !== ta.gd) return tb.gd - ta.gd;
+          return tb.gf - ta.gf;
+        });
+
+        const winner   = sorted[0];
+        const runnerUp = sorted[1];
         if(!winner || !runnerUp) continue;
 
-        // Find R32 slots involving this group's winner or runner-up
+        console.log(`Group ${group} done: 1st=${winner} 2nd=${runnerUp}`);
+
         for(const [slotId, bracket] of Object.entries(R32_BRACKET)) {
           const sid = Number(slotId);
-          if(currentKoFixtures[sid]?.home && currentKoFixtures[sid]?.away) continue; // already fully set
+          if(currentKoFixtures[sid]?.home && currentKoFixtures[sid]?.away) continue;
 
-          if(bracket.home === `1${group}` && winner) {
-            newFixtures[sid] = newFixtures[sid] || {};
-            newFixtures[sid].home = winner;
-          }
-          if(bracket.away === `1${group}` && winner) {
-            newFixtures[sid] = newFixtures[sid] || {};
-            newFixtures[sid].away = winner;
-          }
-          if(bracket.home === `2${group}` && runnerUp) {
-            newFixtures[sid] = newFixtures[sid] || {};
-            newFixtures[sid].home = runnerUp;
-          }
-          if(bracket.away === `2${group}` && runnerUp) {
-            newFixtures[sid] = newFixtures[sid] || {};
-            newFixtures[sid].away = runnerUp;
-          }
+          if(bracket.home === `1${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].home = winner; }
+          if(bracket.away === `1${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].away = winner; }
+          if(bracket.home === `2${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].home = runnerUp; }
+          if(bracket.away === `2${group}`) { newFixtures[sid] = newFixtures[sid]||{}; newFixtures[sid].away = runnerUp; }
         }
       }
 
@@ -1308,13 +1324,13 @@ export default function App() {
     } catch(e) {
       console.error("Auto fixtures error:", e);
     }
-  }, [loadAll]); // eslint-disable-line
+  }, [loadAll, results]); // results needed to derive standings locally
 
-  // Check fixtures every 10 minutes (less frequent than results)
+  // Check fixtures every 2 minutes (was 10 — now using local results so faster is fine)
   useEffect(() => {
     const run = () => checkAutoFixtures(koFixtures);
     run();
-    const i = setInterval(run, 10 * 60 * 1000);
+    const i = setInterval(run, 2 * 60 * 1000);
     return () => clearInterval(i);
   }, [koFixtures, checkAutoFixtures]);
 
@@ -2259,17 +2275,17 @@ export default function App() {
     };
 
     const r32Groups = [
-      {r32:[74,77],r16:89},{r32:[73,75],r16:90},
-      {r32:[76,78],r16:91},{r32:[79,80],r16:92},
-      {r32:[83,84],r16:93},{r32:[81,82],r16:94},
-      {r32:[86,88],r16:95},{r32:[85,87],r16:96},
+      {r32:[74,77],r16:89},{r32:[73,75],r16:90},  // → QF97 (top half)
+      {r32:[83,84],r16:93},{r32:[81,82],r16:94},  // → QF98 (top half)
+      {r32:[76,78],r16:91},{r32:[79,80],r16:92},  // → QF99 (bottom half)
+      {r32:[86,88],r16:95},{r32:[85,87],r16:96},  // → QF100 (bottom half)
     ];
     const r16Groups = [
-      {r16:[89,90],qf:97},{r16:[91,92],qf:99},
-      {r16:[93,94],qf:98},{r16:[95,96],qf:100},
+      {r16:[89,90],qf:97},{r16:[93,94],qf:98},    // QF97+QF98 → SF101
+      {r16:[91,92],qf:99},{r16:[95,96],qf:100},   // QF99+QF100 → SF102
     ];
     const qfGroups = [
-      {qf:[97,98],sf:101},{qf:[99,100],sf:102},
+      {qf:[97,98],sf:101},{qf:[99,100],sf:102},   // SF101=W97vW98, SF102=W99vW100
     ];
 
     const r32Pos = {};
@@ -3028,14 +3044,16 @@ export default function App() {
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
             onClick={e=>{e.stopPropagation();setBracketPopup(null);}}>
-            <div style={{...card,background:"#0f2008",border:`1px solid ${T.amberBorder}`,width:"100%",maxWidth:360,position:"relative"}}
+            <div style={{...card,background:"#0f2008",border:`1px solid ${T.amberBorder}`,width:"100%",maxWidth:360,maxHeight:"70vh",overflowY:"auto",position:"relative"}}
               onClick={e=>e.stopPropagation()}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              {/* Sticky close button always visible at top */}
+              <div style={{position:"sticky",top:0,zIndex:10,background:"#0f2008",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,marginBottom:8}}>
                 <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:T.amber}}>{slotLabel(slot?.slot||"")}</div>
                 <button
                   onClick={e=>{e.stopPropagation();e.preventDefault();setBracketPopup(null);}}
-                  style={{background:"rgba(255,255,255,0.08)",border:`1px solid ${T.border}`,color:T.text,fontSize:16,cursor:"pointer",padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1}}>✕</button>
+                  style={{background:"rgba(255,255,255,0.1)",border:`1px solid ${T.border}`,color:T.text,fontSize:15,cursor:"pointer",padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1,flexShrink:0}}>✕</button>
               </div>
+              <div style={{padding:"0 14px 14px"}}>
               <div style={{fontSize:11,color:T.muted,marginBottom:14}}>
                 {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
                 {winner&&<span style={{color:T.green,marginLeft:8}}>✓ Full Time</span>}
@@ -3065,6 +3083,7 @@ export default function App() {
                   {winner&&myPick.choice!==winner&&<span style={{marginLeft:6,color:"#ff8080"}}>✗ Wrong</span>}
                 </div>
               )}
+              </div>
             </div>
           </div>
         );
