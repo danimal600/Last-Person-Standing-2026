@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, createPortal } from "react";
 import { supabase } from "./supabase";
 
 function etToBst(etStr) {
@@ -2035,7 +2035,7 @@ export default function App() {
       setDatePopup({date:d, matches:sorted});
     }
     function handleMatchesClick(d) {
-      const ms = getMatchesForPickDate(d);
+      const ms = getMatchesForDisplay(d);
       if(ms.length===0) return;
       const seen = new Set();
       const allChoices = [];
@@ -3099,9 +3099,9 @@ export default function App() {
         const loser  = winner===fix.home?fix.away:winner===fix.away?fix.home:null;
         const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
         const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
-        return (
-          <div onClick={()=>setBracketPopup(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,0.85)"}}>
-            <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:"320px",maxWidth:"calc(100vw - 40px)",maxHeight:"calc(100vh - 80px)",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,display:"flex",flexDirection:"column",overflow:"hidden"}}
+        return createPortal(
+          <div onClick={()=>setBracketPopup(null)} style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",zIndex:99999,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{width:"320px",maxWidth:"calc(100vw - 40px)",maxHeight:"calc(100vh - 80px)",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,display:"flex",flexDirection:"column",overflow:"hidden"}}
               onClick={e=>e.stopPropagation()}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a",flexShrink:0}}>
                 <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:2,color:"#c8a840"}}>{slotLabel(slot?.slot||"")}</span>
@@ -3138,9 +3138,9 @@ export default function App() {
               </div>
             </div>
           </div>
-        );
+        , document.body);
       })()}
-            {/* ── POPUP CAROUSEL ── */}
+      {/* ── POPUP CAROUSEL ── */}
       {popupSlides&&popupSlides.slides.length>0&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:400,position:"relative"}}>
