@@ -1111,40 +1111,46 @@ export default function App() {
       const data = await res.json();
       const standings = data.standings || [];
 
-      console.log("Standings raw count:", standings.length);
-      if(standings.length > 0) console.log("First standing sample:", JSON.stringify(standings[0]).slice(0,200));
+      // API returns a single GROUP_STAGE standing with all 48 teams, group=null
+      // Find the TOTAL type table
+      const totalStanding = standings.find(s => s.type==="TOTAL") || standings[0];
+      if(!totalStanding?.table?.length) { console.warn("No standings table found"); return; }
 
-      // Build group table — handle both GROUP_A style and any other format
-      const groups = {};
-      for(const standing of standings) {
-        // Accept any type that looks like a group (not just "TOTAL")
-        // Some WC APIs return HOME/AWAY/TOTAL per group, others just one entry
-        const t = standing.type;
-        if(t && t !== "TOTAL" && t !== "total" && standing.type) {
-          // If there are multiple types, only process TOTAL to avoid duplicates
-          const hasTotal = standings.some(s => s.group === standing.group && (s.type==="TOTAL"||s.type==="total"));
-          if(hasTotal) continue;
-        }
-
-        // Extract group letter — try multiple field paths
-        let group = null;
-        const raw = standing.group || standing.stage || "";
-        // Matches: "GROUP_A", "Group A", "A", "GROUP_STAGE_A"
-        const m = raw.match(/([A-L])$/i);
-        if(m) group = m[1].toUpperCase();
-        if(!group) continue;
-
-        if(!standing.table || !standing.table.length) continue;
-
-        groups[group] = standing.table.map(row => ({
-          team: TEAM_NAME_MAP[row.team?.name] || row.team?.shortName || row.team?.name,
+      // Build a lookup: team name → {points, gd, gf, played, pos}
+      const teamStats = {};
+      for(const row of totalStanding.table) {
+        const name = TEAM_NAME_MAP[row.team?.name] || TEAM_NAME_MAP[row.team?.shortName] || row.team?.name;
+        if(name) teamStats[name] = {
           points: row.points,
           gd: row.goalDifference,
           gf: row.goalsFor,
-          pos: row.position,
           played: row.playedGames,
-        }));
-        console.log(`Group ${group}: ${groups[group].map(t=>t.team+"("+t.played+"g)").join(", ")}`);
+          pos: row.position,
+        };
+      }
+
+      // Derive group membership from GROUP_MATCHES (we know exactly which teams are in each group)
+      const groupTeams = {};
+      for(const m of GROUP_MATCHES) {
+        if(!m.group) continue;
+        if(!groupTeams[m.group]) groupTeams[m.group] = new Set();
+        groupTeams[m.group].add(m.home);
+        groupTeams[m.group].add(m.away);
+      }
+
+      // Build per-group table using API stats for each team
+      const groups = {};
+      for(const [group, teamSet] of Object.entries(groupTeams)) {
+        const table = [...teamSet].map(name => ({
+          team: name,
+          ...(teamStats[name] || {points:0,gd:0,gf:0,played:0,pos:99}),
+        })).sort((a,b) => b.points-a.points || b.gd-a.gd || b.gf-a.gf);
+
+        // Assign positions within group
+        table.forEach((t,i) => t.pos = i+1);
+        groups[group] = table;
+        const done = table.length===4 && table.every(t=>t.played>=3);
+        if(done) console.log(`Group ${group} done: 1st=${table[0].team} 2nd=${table[1].team}`);
       }
 
       const allGroupsDone = Object.keys(groups).length >= 12 &&
@@ -2916,7 +2922,7 @@ export default function App() {
   const isNav=["pick","grid","schedule","rules","admin"].includes(screen);
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0a1500 0%,#0d1f00 55%,#0a1500 100%)",fontFamily:"'Segoe UI',system-ui,sans-serif",color:T.text,position:"relative"}}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}*{box-sizing:border-box;margin:0;padding:0}select option{background:#0d2016}button:hover:not(:disabled){filter:brightness(1.1)}`}</style>
       {isNav&&(
         <header style={{background:"rgba(0,0,0,0.6)",borderBottom:`1px solid ${T.amberBorder}`}}>
@@ -3034,9 +3040,9 @@ export default function App() {
         const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
         const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
         return (
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"60px 20px 20px",overflowY:"auto"}}
             onClick={e=>{e.stopPropagation();setBracketPopup(null);}}>
-            <div style={{background:"#0f2008",border:`1px solid ${T.amberBorder}`,borderRadius:12,width:"100%",maxWidth:360,display:"flex",flexDirection:"column",maxHeight:"60vh"}}
+            <div style={{background:"#0f2008",border:`1px solid ${T.amberBorder}`,borderRadius:12,width:"100%",maxWidth:360,flexShrink:0}}
               onClick={e=>e.stopPropagation()}>
               {/* Close button row — always visible, never scrolls */}
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
@@ -3045,8 +3051,8 @@ export default function App() {
                   onClick={e=>{e.stopPropagation();e.preventDefault();setBracketPopup(null);}}
                   style={{background:"rgba(255,255,255,0.1)",border:`1px solid ${T.border}`,color:T.text,fontSize:15,cursor:"pointer",padding:"6px 12px",borderRadius:6,fontWeight:700,lineHeight:1,flexShrink:0}}>✕</button>
               </div>
-              {/* Scrollable content */}
-              <div style={{overflowY:"auto",padding:"12px 14px 14px",flex:1}}>
+              {/* Content */}
+              <div style={{padding:"12px 14px 14px"}}>
                 <div style={{fontSize:11,color:T.muted,marginBottom:12}}>
                   {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
                   {winner&&<span style={{color:T.green,marginLeft:8}}>✓ Full Time</span>}
