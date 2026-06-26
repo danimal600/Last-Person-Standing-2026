@@ -2383,12 +2383,12 @@ export default function App() {
               <line x1={0} y1={sfPos[101]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[101]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
               <line x1={0} y1={sfPos[102]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[102]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
               <line x1={COL_GAP/2} y1={sfPos[101]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[102]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
-              <line x1={COL_GAP/2} y1={finalY+CARD_H/2} x2={COL_GAP} y2={finalY+CARD_H/2} stroke={'#'+GOLD} strokeWidth={1.5}/>
+              <line x1={COL_GAP/2} y1={finalY+CARD_H/2} x2={COL_GAP} y2={finalY+CARD_H/2} stroke="#FFD700" strokeWidth={1.5}/>
               {/* Losers to 3rd place (dashed) */}
-              <line x1={0} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[101]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray=3,3/>
-              <line x1={0} y1={sfPos[102]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[102]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray=3,3/>
-              <line x1={COL_GAP/4} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray=3,3/>
-              <line x1={COL_GAP/4} y1={thirdY+CARD_H/2} x2={COL_GAP} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray=3,3/>
+              <line x1={0} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[101]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
+              <line x1={0} y1={sfPos[102]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[102]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
+              <line x1={COL_GAP/4} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
+              <line x1={COL_GAP/4} y1={thirdY+CARD_H/2} x2={COL_GAP} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
             </svg>
 
             {/* Final */}
