@@ -1906,7 +1906,10 @@ export default function App() {
 
         {koDatesUpcoming.length>0&&(
           <div style={card}>
-            <div style={sec}>🏆 Knockout Rounds</div>
+            <div style={sec}>🏆 Round of 32 / Round of 16</div>
+            <div style={{fontSize:11,color:T.muted,marginBottom:12,padding:"8px 10px",background:"rgba(255,215,0,0.06)",borderRadius:8,border:`1px solid ${T.amberBorder}`}}>
+              🚫 You cannot pick the same team twice across the entire R32 and R16 combined.
+            </div>
             {koDatesUpcoming.map(pickDate=>{
               const ms=getMatchesForPickDate(pickDate).filter(m=>m.isKnockout); if(!ms.length)return null;
               const locked=isLocked(pickDate);
@@ -1925,8 +1928,14 @@ export default function App() {
                     const myPick=p.picks[String(m.id)];
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
                     return (
-                      <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8,opacity:otherMatchPicked?0.4:1}}>
-                        {[m.home,m.away].map(choice=>{
+                      <div key={i} style={{marginBottom:8,opacity:otherMatchPicked?0.4:1}}>
+                        <div style={{fontSize:11,color:T.muted,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{...pill("muted"),fontSize:9}}>{m.slot?`M${m.id}`:""}</span>
+                          <span>{m.home&&m.away?`${f(m.home)} ${m.home} vs ${f(m.away)} ${m.away}`:m.slot?slotLabel(m.slot):""}</span>
+                          <span style={{marginLeft:"auto"}}>{fmtBST(m.kickoffBST)} BST</span>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {[m.home,m.away].filter(Boolean).map(choice=>{
                           const u=usedPhase.includes(choice)&&myPick!==choice;
                           const sel=myPick===choice;
                           const dis=otherMatchPicked||u||locked;
@@ -1934,6 +1943,7 @@ export default function App() {
                             <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
                           </button>;
                         })}
+                        </div>
                       </div>
                     );
                   })}
@@ -1943,7 +1953,38 @@ export default function App() {
           </div>
         )}
 
-        {(()=>{const used=getPicksInPhase(p,today);return used.length>0?(<div style={card}><div style={sec}>🚫 Used this phase</div><div style={{display:"flex",flexWrap:"wrap",gap:8}}>{used.map(t=><span key={t} style={{...pill("muted"),padding:"5px 12px",fontSize:13}}>{f(t)} {t}</span>)}</div></div>):null;})()}
+        {(()=>{
+          const groupUsed = allPickDates
+            .filter(d=>phaseOf(d)==="GROUP")
+            .map(d=>getDayPick(p,d))
+            .filter(dp=>dp&&dp.choice!=="Draw")
+            .map(dp=>dp.choice);
+          const koUsed = allPickDates
+            .filter(d=>phaseOf(d)==="L32_L16")
+            .map(d=>getDayPick(p,d))
+            .filter(dp=>dp&&dp.choice!=="Draw")
+            .map(dp=>dp.choice);
+          return (
+            <>
+              {groupUsed.length>0&&(
+                <div style={card}>
+                  <div style={sec}>🚫 Group Stage — used teams</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {groupUsed.map(t=><span key={t} style={{...pill("muted"),padding:"5px 12px",fontSize:13}}>{f(t)} {t}</span>)}
+                  </div>
+                </div>
+              )}
+              {koUsed.length>0&&(
+                <div style={card}>
+                  <div style={sec}>🚫 R32 / R16 — used teams</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {koUsed.map(t=><span key={t} style={{...pill("muted"),padding:"5px 12px",fontSize:13}}>{f(t)} {t}</span>)}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </>
     );
   }
@@ -1986,13 +2027,10 @@ export default function App() {
     function handleDateClick(d) {
       const ms = getMatchesForPickDate(d);
       if(ms.length===0) return;
-      // Sort: same-day games first (by BST hour), early-hours next-day games last
+      // Sort: evening/afternoon games first, early-hours BST games (midnight→6am) last
       const sorted = [...ms].sort((a,b) => {
-        const aLate = a.earlyHours ? 1 : 0;
-        const bLate = b.earlyHours ? 1 : 0;
-        if(aLate !== bLate) return aLate - bLate;
-        // Both same category — sort by BST kickoff time
-        return (a.kickoffBST||"").localeCompare(b.kickoffBST||"");
+        const bstHour = t => { const h=parseInt((t?.kickoffBST||"12").split(":")[0]); return h<6?h+24:h; };
+        return bstHour(a) - bstHour(b);
       });
       setDatePopup({date:d, matches:sorted});
     }
@@ -3062,13 +3100,14 @@ export default function App() {
         const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
         const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
         return (
-          <div onClick={()=>setBracketPopup(null)} style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div onClick={e=>e.stopPropagation()} style={{width:"min(340px,90vw)",maxHeight:"80vh",overflowY:"auto",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,display:"flex",flexDirection:"column"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a",position:"sticky",top:0,background:"#0f2008",zIndex:1}}>
+          <div onClick={()=>setBracketPopup(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,0.85)"}}>
+            <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:"320px",maxWidth:"calc(100vw - 40px)",maxHeight:"calc(100vh - 80px)",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,display:"flex",flexDirection:"column",overflow:"hidden"}}
+              onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a",flexShrink:0}}>
                 <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:2,color:"#c8a840"}}>{slotLabel(slot?.slot||"")}</span>
-                <button onClick={e=>{e.stopPropagation();setBracketPopup(null);}} style={{background:"rgba(255,255,255,0.12)",border:"1px solid #3a4a2a",color:"#d0c89e",fontSize:16,fontWeight:700,cursor:"pointer",padding:"3px 10px",borderRadius:6,lineHeight:1}}>✕</button>
+                <button onClick={e=>{e.stopPropagation();setBracketPopup(null);}} style={{background:"rgba(255,255,255,0.12)",border:"1px solid #3a4a2a",color:"#d0c89e",fontSize:16,fontWeight:700,cursor:"pointer",padding:"3px 10px",borderRadius:6,lineHeight:1,flexShrink:0}}>✕</button>
               </div>
-              <div style={{padding:"12px 14px 16px"}}>
+              <div style={{overflowY:"auto",padding:"12px 14px 16px",flex:1}}>
                 <div style={{fontSize:11,color:"#8a9e72",marginBottom:12}}>
                   {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
                   {winner&&<span style={{color:"#4CAF50",marginLeft:8}}>✓ Full Time</span>}
@@ -3101,7 +3140,7 @@ export default function App() {
           </div>
         );
       })()}
-      {/* ── POPUP CAROUSEL ── */}
+            {/* ── POPUP CAROUSEL ── */}
       {popupSlides&&popupSlides.slides.length>0&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
           <div style={{width:"100%",maxWidth:400,position:"relative"}}>
