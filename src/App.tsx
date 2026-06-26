@@ -86,18 +86,100 @@ const ALL_GROUP_MATCHES_RAW = [
   { id:72, etDate:"2026-06-27", home:"Jordan",         away:"Argentina",      group:"J", kickoffET:"22:00" },
 ];
 
-// UK TV channel for each group stage match (BBC One/iPlayer or ITV1/ITV4/ITVX)
-// Source: ESPN/BBC/ITV confirmed schedules
+// UK TV channel for each group stage match
+// BBC = BBC One (unless noted as BBC2), ITV = ITV1 (unless noted as ITV4)
+// Source: live-footballontv.com + ESPN confirmed schedules (June 2026)
 const UK_CHANNEL = {
-  1:"ITV",2:"ITV",3:"BBC",4:"BBC",5:"ITV",6:"BBC",7:"BBC",8:"ITV",
-  9:"ITV",10:"ITV",11:"BBC",12:"ITV",13:"ITV",14:"BBC",15:"ITV",16:"BBC",
-  17:"BBC",18:"BBC",19:"ITV",20:"BBC",21:"BBC",22:"ITV",23:"ITV",24:"ITV",
-  25:"BBC",26:"ITV",27:"ITV",28:"ITV",29:"BBC",30:"ITV",31:"BBC",32:"ITV",
-  33:"ITV",34:"BBC",35:"BBC",36:"ITV",37:"BBC",38:"ITV",39:"BBC",40:"ITV",
-  41:"BBC",42:"BBC",43:"ITV",44:"ITV",45:"ITV",46:"BBC",47:"BBC",48:"ITV",
-  49:"ITV",50:"ITV4",51:"BBC",52:"ITV",53:"ITV",54:"BBC",55:"ITV",56:"BBC",
-  57:"BBC",58:"ITV",59:"ITV",60:"BBC",61:"BBC",62:"ITV",63:"ITV",64:"BBC",
-  65:"ITV",66:"BBC",67:"ITV",68:"BBC",69:"BBC",70:"ITV",71:"ITV",72:"BBC",
+  // June 11
+  1:"ITV",                    // Mexico v South Africa
+  // June 12
+  2:"ITV",                    // South Korea v Czechia (3am)
+  3:"BBC",                    // Canada v Bosnia & Herz.
+  // June 13
+  4:"BBC",                    // USA v Paraguay (2am)
+  5:"ITV",                    // Qatar v Switzerland
+  6:"BBC",                    // Brazil v Morocco
+  // June 14 (inc early hours)
+  7:"BBC",                    // Haiti v Scotland (2am)
+  8:"ITV",                    // Australia v Turkiye (5am)
+  9:"ITV",                    // Germany v Curacao
+  10:"ITV",                   // Netherlands v Japan
+  // June 15 (inc early hours)
+  11:"BBC",                   // Ivory Coast v Ecuador (midnight)
+  12:"ITV",                   // Sweden v Tunisia (3am)
+  13:"ITV",                   // Spain v Cape Verde
+  14:"BBC",                   // Belgium v Egypt
+  15:"ITV",                   // Saudi Arabia v Uruguay
+  // June 16 (inc early hours)
+  16:"BBC",                   // Iran v New Zealand (2am)
+  17:"BBC",                   // France v Senegal
+  18:"BBC",                   // Iraq v Norway
+  // June 17 (inc early hours)
+  19:"ITV",                   // Argentina v Algeria (2am)
+  20:"BBC",                   // Austria v Jordan (5am)
+  21:"BBC",                   // Portugal v DR Congo
+  22:"ITV",                   // England v Croatia
+  // June 18 (inc early hours)
+  23:"ITV",                   // Ghana v Panama (midnight)
+  24:"BBC",                   // Uzbekistan v Colombia (3am)
+  25:"BBC",                   // Czechia v South Africa
+  26:"ITV",                   // Switzerland v Bosnia & Herz.
+  27:"ITV",                   // Canada v Qatar
+  // June 19 (inc early hours)
+  28:"BBC",                   // Mexico v South Korea (2am)
+  29:"BBC",                   // USA v Australia
+  30:"ITV",                   // Scotland v Morocco
+  // June 20 (inc early hours)
+  31:"ITV",                   // Brazil v Haiti (2am)
+  32:"ITV",                   // Turkiye v Paraguay (5am)
+  33:"BBC",                   // Netherlands v Sweden
+  34:"ITV",                   // Germany v Ivory Coast
+  // June 21 (inc early hours)
+  35:"BBC",                   // Ecuador v Curacao (1am)
+  36:"BBC",                   // Tunisia v Japan (5am)
+  37:"BBC",                   // Spain v Saudi Arabia
+  38:"ITV",                   // Belgium v Iran
+  39:"BBC",                   // Uruguay v Cape Verde
+  // June 22 (inc early hours)
+  40:"ITV",                   // New Zealand v Egypt (2am)
+  41:"BBC",                   // Argentina v Austria
+  42:"BBC",                   // France v Iraq
+  // June 23 (inc early hours)
+  43:"ITV",                   // Norway v Senegal (1am)
+  44:"ITV",                   // Jordan v Algeria (4am)
+  45:"ITV",                   // Portugal v Uzbekistan
+  46:"BBC",                   // England v Ghana
+  // June 24 (inc early hours)
+  47:"BBC",                   // Panama v Croatia (midnight)
+  48:"ITV",                   // Colombia v DR Congo (3am)
+  49:"ITV",                   // Switzerland v Canada
+  50:"ITV4",                  // Bosnia & Herz. v Qatar
+  51:"BBC",                   // Scotland v Brazil
+  52:"BBC2",                  // Morocco v Haiti
+  // June 25 (inc early hours)
+  53:"BBC",                   // Czechia v Mexico (2am)
+  54:"BBC2",                  // South Africa v South Korea (2am)
+  55:"BBC2",                  // Curacao v Ivory Coast
+  56:"BBC",                   // Ecuador v Germany
+  // June 26 (inc early hours)
+  57:"BBC2",                  // Japan v Sweden (midnight)
+  58:"BBC",                   // Tunisia v Netherlands (midnight)
+  59:"ITV4",                  // Paraguay v Australia (3am)
+  60:"ITV",                   // Turkiye v USA (3am)
+  61:"ITV",                   // Norway v France
+  62:"ITV4",                  // Senegal v Iraq
+  // June 27 (inc early hours)
+  63:"ITV4",                  // Cape Verde v Saudi Arabia (1am)
+  64:"ITV",                   // Uruguay v Spain (1am)
+  65:"BBC2",                  // Egypt v Iran (4am)
+  66:"BBC",                   // New Zealand v Belgium (4am)
+  67:"ITV",                   // Panama v England
+  68:"ITV4",                  // Croatia v Ghana
+  // June 28 (inc early hours)
+  69:"BBC",                   // Colombia v Portugal (00:30)
+  70:"BBC2",                  // DR Congo v Uzbekistan (00:30)
+  71:"BBC2",                  // Algeria v Austria (3am)
+  72:"BBC",                   // Jordan v Argentina (3am)
 };
 
 const KNOCKOUT_SLOTS = [
@@ -355,6 +437,7 @@ export default function App() {
   const [popupSlides, setPopupSlides] = useState(null); // { slides:[{icon,title,body}], key }
   const [popupIdx, setPopupIdx] = useState(0);
   const [showStandings, setShowStandings] = useState(false);
+  const [bracketPopup, setBracketPopup] = useState(null);
   const toastRef = useRef(null);
 
   // ── Admin screen state, lifted to App level ────────────────────────────
@@ -1065,7 +1148,7 @@ export default function App() {
         // Find R32 slots involving this group's winner or runner-up
         for(const [slotId, bracket] of Object.entries(R32_BRACKET)) {
           const sid = Number(slotId);
-          if(currentKoFixtures[sid]) continue; // already set
+          if(currentKoFixtures[sid]?.home && currentKoFixtures[sid]?.away) continue; // already fully set
 
           if(bracket.home === `1${group}` && winner) {
             newFixtures[sid] = newFixtures[sid] || {};
@@ -1160,7 +1243,7 @@ export default function App() {
           for(const brackets of [R16_BRACKET, QF_BRACKET, SF_BRACKET, FINAL_BRACKET]) {
             for(const [nextSlotId, bracket] of Object.entries(brackets)) {
               const nsid = Number(nextSlotId);
-              if(currentKoFixtures[nsid]) continue;
+              if(currentKoFixtures[nsid]?.home && currentKoFixtures[nsid]?.away) continue;
               if(bracket.home === winCode) {
                 newFixtures[nsid] = newFixtures[nsid] || {};
                 newFixtures[nsid].home = winner;
@@ -1182,17 +1265,40 @@ export default function App() {
         }
       }
 
-      // Save any complete new fixtures (both home and away known)
+      // Save fixtures — both complete (home+away known) and partial (one team known).
+      // Partial fixtures are saved with whatever is known so far; the next poll
+      // will fill in the missing team once that group finishes. This prevents
+      // the case where Group A finishes in one poll but Group B hasn't yet —
+      // previously the slot would never get saved because both teams weren't
+      // simultaneously available in the same run.
       const saves = [];
       for(const [slotId, fix] of Object.entries(newFixtures)) {
-        if(fix.home && fix.away) {
+        const sid = Number(slotId);
+        // Merge with any existing partial fixture already in Supabase
+        const existing = currentKoFixtures[sid] || {};
+        const merged = {
+          home: fix.home || existing.home || null,
+          away: fix.away || existing.away || null,
+        };
+        if(!merged.home && !merged.away) continue; // nothing to save
+        if(merged.home && merged.away) {
+          // Complete — save as full fixture
           saves.push(
             supabase.from("ko_fixtures").upsert(
-              { slot_id: Number(slotId), home: fix.home, away: fix.away },
+              { slot_id: sid, home: merged.home, away: merged.away },
               { onConflict: "slot_id" }
             )
           );
-          console.log(`Auto-fixture: slot ${slotId} → ${fix.home} vs ${fix.away}`);
+          console.log(`Auto-fixture complete: slot ${sid} → ${merged.home} vs ${merged.away}`);
+        } else {
+          // Partial — save what we have so next poll can complete it
+          const partial = { slot_id: sid };
+          if(merged.home) partial.home = merged.home;
+          if(merged.away) partial.away = merged.away;
+          saves.push(
+            supabase.from("ko_fixtures").upsert(partial, { onConflict: "slot_id" })
+          );
+          console.log(`Auto-fixture partial: slot ${sid} → home:${merged.home||"?"} away:${merged.away||"?"}`);
         }
       }
       if(saves.length > 0) {
@@ -1547,7 +1653,13 @@ export default function App() {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
           <span style={{fontSize:11,color:isLive?T.red:T.muted}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinishedFallback?"":fmtBST(m.kickoffBST)+" BST"}</span>
-          {UK_CHANNEL[m.id]&&<span style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:3,background:UK_CHANNEL[m.id]==="BBC"?"rgba(255,60,60,0.25)":UK_CHANNEL[m.id]==="ITV4"?"rgba(91,168,224,0.25)":"rgba(0,132,61,0.25)",color:UK_CHANNEL[m.id]==="BBC"?"#ff8080":UK_CHANNEL[m.id]==="ITV4"?"#7ec8f0":"#5bd48a",flexShrink:0}}>{UK_CHANNEL[m.id]}</span>}
+          {UK_CHANNEL[m.id]&&(()=>{
+            const ch = UK_CHANNEL[m.id];
+            const isBBC = ch.startsWith("BBC");
+            const bg = isBBC ? "rgba(255,60,60,0.25)" : ch==="ITV4" ? "rgba(91,168,224,0.22)" : "rgba(0,132,61,0.22)";
+            const col = isBBC ? "#ff8080" : ch==="ITV4" ? "#7ec8f0" : "#5bd48a";
+            return <span style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:3,background:bg,color:col,flexShrink:0}}>{ch}</span>;
+          })()}
         </div>
       </div>
     );
@@ -2075,6 +2187,116 @@ export default function App() {
     {rank:85, team:"New Zealand",      flag:"🇳🇿"},
   ];
 
+  // ── BRACKET VIEW ─────────────────────────────────────────────────────────
+  function BracketView() {
+
+    // Resolve a team name from koFixtures given a slot id
+    const teamName = (slotId) => {
+      const fix = koFixtures[slotId];
+      return fix ? null : null; // used below
+    };
+
+    // Get display name for a slot — either the actual team (if known) or placeholder
+    const getTeam = (slotId, side) => {
+      const fix = koFixtures[slotId];
+      if(fix && fix[side]) return fix[side];
+      // Look up what the bracket says this slot should be
+      const allBrackets = {...R32_BRACKET,...R16_BRACKET,...QF_BRACKET,...SF_BRACKET,...FINAL_BRACKET};
+      const bracket = allBrackets[slotId];
+      if(!bracket) return "TBD";
+      return bracket[side] || "TBD";
+    };
+
+    // Get result for a slot from results table
+    const getResult = (slotId) => {
+      const fix = koFixtures[slotId];
+      if(!fix) return null;
+      const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
+      if(!slot) return null;
+      const pd = slot.pickDate;
+      const homeRes = results[`${pd}|${fix.home}`];
+      const awayRes = results[`${pd}|${fix.away}`];
+      if(homeRes==="win") return {winner:fix.home, loser:fix.away};
+      if(awayRes==="win") return {winner:fix.away, loser:fix.home};
+      return null;
+    };
+
+    // Build bracket rounds
+    const rounds = [
+      { label:"R32", ids:[73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88] },
+      { label:"R16", ids:[89,90,91,92,93,94,95,96] },
+      { label:"QF",  ids:[97,98,99,100] },
+      { label:"SF",  ids:[101,102] },
+      { label:"Final", ids:[104] },
+    ];
+
+    const MatchCard = ({slotId, compact=false}) => {
+      const fix = koFixtures[slotId];
+      const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
+      const result = getResult(slotId);
+      const home = getTeam(slotId,"home");
+      const away = getTeam(slotId,"away");
+      const hasTeams = fix?.home && fix?.away;
+      const isFinished = !!result;
+      const isTBD = !hasTeams;
+
+      return (
+        <div onClick={()=>hasTeams&&setBracketPopup(slotId)}
+          style={{background:isFinished?"rgba(0,100,30,0.25)":hasTeams?"rgba(255,215,0,0.08)":"rgba(255,255,255,0.03)",
+            border:`1px solid ${isFinished?T.greenBorder:hasTeams?T.amberBorder:T.border}`,
+            borderRadius:8,padding:compact?"5px 8px":"7px 10px",marginBottom:4,
+            cursor:hasTeams?"pointer":"default",minWidth:compact?140:150}}>
+          <div style={{fontSize:9,color:T.muted,marginBottom:3}}>
+            {slotLabel(slot?.slot||"")} {slot&&!isFinished?`· ${fmtBST(slot.kickoffBST)} BST`:""}
+            {isFinished&&<span style={{color:T.green,marginLeft:4}}>✓ FT</span>}
+          </div>
+          {[["home",home],["away",away]].map(([side,team])=>{
+            const isWinner = result?.winner===team;
+            const isLoser = result?.loser===team;
+            const isTBDTeam = !fix?.[side];
+            return (
+              <div key={side} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 0",
+                opacity:isLoser?0.45:1}}>
+                <span style={{fontSize:11,flexShrink:0}}>{isTBDTeam?"":f(team)}</span>
+                <span style={{fontSize:11,fontWeight:isWinner?700:400,
+                  color:isWinner?T.amber:isTBDTeam?T.muted:T.text}}>
+                  {isTBDTeam?<span style={{color:"#2a4030",fontSize:10}}>{team}</span>:team}
+                </span>
+                {isWinner&&<span style={{fontSize:9,color:T.amber,flexShrink:0}}>✓</span>}
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    return (
+      <div style={{}}>
+        <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:T.amber,marginBottom:12}}>🏆 Knockout Bracket</div>
+        <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Tap any confirmed fixture to see details. Teams populate automatically as groups finish.</div>
+
+        {/* Scrollable bracket */}
+        <div style={{overflowX:"auto",paddingBottom:8}}>
+          <div style={{display:"flex",gap:10,alignItems:"flex-start",minWidth:"max-content"}}>
+            {rounds.map(({label,ids})=>(
+              <div key={label} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,minWidth:label==="R32"?148:140}}>
+                <div style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:2,marginBottom:4,textTransform:"uppercase"}}>{label}</div>
+                {ids.map(id=><MatchCard key={id} slotId={id} compact={label==="R32"}/>)}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:16,fontSize:11,color:T.muted}}>
+          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:12,height:12,borderRadius:2,background:"rgba(255,215,0,0.08)",border:`1px solid ${T.amberBorder}`}}></div>Confirmed</div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:12,height:12,borderRadius:2,background:"rgba(0,100,30,0.25)",border:`1px solid ${T.greenBorder}`}}></div>Finished</div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:12,height:12,borderRadius:2,background:"rgba(255,255,255,0.03)",border:`1px solid ${T.border}`}}></div>TBD</div>
+        </div>
+      </div>
+    );
+  }
+
   function RulesView() {
     const [showRankings, setShowRankings] = useState(false);
     const [showTiebreakRules, setShowTiebreakRules] = useState(false);
@@ -2483,12 +2705,18 @@ export default function App() {
                   </div>
                   {isEditing&&(
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                      <input placeholder="Home team" style={{...inp,flex:"1 1 110px",padding:"7px 10px",fontSize:13}} value={koInputs[`${key}_h`]||""} onChange={e=>setKoInputs(prev=>({...prev,[`${key}_h`]:e.target.value}))} />
+                      <select style={{...inp,flex:"1 1 130px",padding:"7px 10px",fontSize:13}} value={koInputs[`${key}_h`]||""} onChange={e=>setKoInputs(prev=>({...prev,[`${key}_h`]:e.target.value}))}>
+                        <option value="">Home team…</option>
+                        {FIFA_RANKINGS.map(t=><option key={t.team} value={t.team}>{t.flag} {t.team}</option>)}
+                      </select>
                       <span style={{color:T.muted,fontSize:13}}>vs</span>
-                      <input placeholder="Away team" style={{...inp,flex:"1 1 110px",padding:"7px 10px",fontSize:13}} value={koInputs[`${key}_a`]||""} onChange={e=>setKoInputs(prev=>({...prev,[`${key}_a`]:e.target.value}))} />
+                      <select style={{...inp,flex:"1 1 130px",padding:"7px 10px",fontSize:13}} value={koInputs[`${key}_a`]||""} onChange={e=>setKoInputs(prev=>({...prev,[`${key}_a`]:e.target.value}))}>
+                        <option value="">Away team…</option>
+                        {FIFA_RANKINGS.map(t=><option key={t.team} value={t.team}>{t.flag} {t.team}</option>)}
+                      </select>
                       <button style={{...btn("amber"),fontSize:12,padding:"7px 14px"}} onClick={async()=>{
                         const h=(koInputs[`${key}_h`]||"").trim(),a=(koInputs[`${key}_a`]||"").trim();
-                        if(!h||!a){toast_("error","Enter both team names.");return;}
+                        if(!h||!a){toast_("error","Select both teams.");return;}
                         await setKoFixture(slot.id,h,a);
                         setKoInputs(prev=>{const n={...prev};delete n[`${key}_h`];delete n[`${key}_a`];delete n[`${key}_editing`];return n;});
                       }}>Save</button>
@@ -2585,7 +2813,7 @@ export default function App() {
           </div>
           {/* Row 2: Nav tabs */}
           <div style={{display:"flex",borderTop:`1px solid rgba(255,255,255,0.06)`}}>
-            {(activePlayer?[["⚽","My Picks","pick"],["📊","Grid","grid"],["📅","Schedule","schedule"],["📖","Rules","rules"]]:[["📊","Grid","grid"],["📅","Schedule","schedule"],["📖","Rules","rules"]]).map(([icon,label,key])=>(
+            {(activePlayer?[["","My Picks","pick"],["","Grid","grid"],["","Schedule","schedule"],["","Bracket","bracket"],["","Rules","rules"]]:[["","Grid","grid"],["","Schedule","schedule"],["","Bracket","bracket"],["","Rules","rules"]]).map(([icon,label,key])=>(
               <button key={key} onClick={()=>setScreen(key)} style={{flex:1,padding:"9px 4px",background:screen===key?T.amberBg:"transparent",border:"none",borderBottom:screen===key?`2px solid ${T.amber}`:"2px solid transparent",color:screen===key?T.amber:T.muted,cursor:"pointer",fontSize:12,fontWeight:screen===key?700:400,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all 0.15s"}}>
                 {icon} {label}
               </button>
@@ -2601,6 +2829,7 @@ export default function App() {
         {screen==="pick"     &&<PickScreen/>}
         {screen==="grid"     &&<GridView/>}
         {screen==="schedule" &&<Schedule/>}
+        {screen==="bracket"  &&<BracketView/>}
         {screen==="rules"    &&<RulesView/>}
         {screen==="admin"    &&<Admin/>}
       </main>
@@ -2655,6 +2884,65 @@ export default function App() {
                       </span>
                     ))}
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+      {/* ── BRACKET MATCH POPUP ── */}
+      {bracketPopup&&(()=>{
+        const slotId = bracketPopup;
+        const fix = koFixtures[slotId];
+        const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
+        if(!fix) return null;
+        const persisted = results[`${slot?.pickDate}|__score__${slotId}`];
+        let scoreDisp = null;
+        if(persisted){const [sp]=persisted.split(":");const [h,a]=sp.split("-").map(Number);scoreDisp={h,a};}
+        const homeRes = results[`${slot?.pickDate}|${fix.home}`];
+        const awayRes = results[`${slot?.pickDate}|${fix.away}`];
+        const winner = homeRes==="win"?fix.home:awayRes==="win"?fix.away:null;
+        const loser  = winner===fix.home?fix.away:winner===fix.away?fix.home:null;
+        const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
+        const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+            onClick={e=>{e.stopPropagation();setBracketPopup(null);}}>
+            <div style={{...card,background:"#0f2008",border:`1px solid ${T.amberBorder}`,width:"100%",maxWidth:360,position:"relative"}}
+              onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:T.amber}}>{slotLabel(slot?.slot||"")}</div>
+                <button
+                  onClick={e=>{e.stopPropagation();e.preventDefault();setBracketPopup(null);}}
+                  style={{background:"rgba(255,255,255,0.08)",border:`1px solid ${T.border}`,color:T.text,fontSize:16,cursor:"pointer",padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1}}>✕</button>
+              </div>
+              <div style={{fontSize:11,color:T.muted,marginBottom:14}}>
+                {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
+                {winner&&<span style={{color:T.green,marginLeft:8}}>✓ Full Time</span>}
+              </div>
+              {[["home",fix.home],["away",fix.away]].map(([side,team])=>{
+                const isWinner = winner===team;
+                const isLoser  = loser===team;
+                const score    = scoreDisp ? (side==="home"?scoreDisp.h:scoreDisp.a) : null;
+                return (
+                  <div key={side} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                    background:isWinner?"rgba(0,132,61,0.2)":isLoser?"rgba(160,30,30,0.15)":"rgba(255,255,255,0.04)",
+                    borderRadius:8,marginBottom:6,
+                    border:`1px solid ${isWinner?T.greenBorder:isLoser?"rgba(160,30,30,0.3)":T.border}`}}>
+                    <span style={{fontSize:24,flexShrink:0}}>{f(team)}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontWeight:700,color:isWinner?T.amber:isLoser?"#888":T.text}}>{team}</div>
+                      {isWinner&&<div style={{fontSize:10,color:T.green}}>Winner ✓</div>}
+                    </div>
+                    {score!==null&&<span style={{fontSize:22,fontWeight:900,color:T.amber,flexShrink:0}}>{score}</span>}
+                  </div>
+                );
+              })}
+              {myPickIsThis&&(
+                <div style={{marginTop:8,padding:"8px 12px",background:T.amberBg,borderRadius:8,fontSize:12,color:T.amber}}>
+                  👤 Your pick: {f(myPick.choice)} {myPick.choice}
+                  {winner&&myPick.choice===winner&&<span style={{marginLeft:6,color:T.green}}>✓ Correct</span>}
+                  {winner&&myPick.choice!==winner&&<span style={{marginLeft:6,color:"#ff8080"}}>✗ Wrong</span>}
                 </div>
               )}
             </div>
