@@ -1386,6 +1386,12 @@ export default function App() {
     const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate&&koFixtures[s.id]).map(s=>({...s,...koFixtures[s.id],isKnockout:true}));
     return [...gm,...km];
   }
+  // For grid header display only — includes unconfirmed knockout slots so column shows M90 etc
+  function getMatchesForDisplay(pickDate) {
+    const gm = matchesByPickDate[pickDate]||[];
+    const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate).map(s=>({...s,...(koFixtures[s.id]||{}),isKnockout:true}));
+    return [...gm,...km];
+  }
   const activeDates = allPickDates.filter(d => groupPickDates.includes(d) || KNOCKOUT_SLOTS.filter(s=>s.pickDate===d).some(s=>koFixtures[s.id]));
   // Dates on which Midda's Law applied (everyone wrong, nobody loses a life) —
   // used to colour those picks differently on the Grid (gold) rather than
@@ -1635,7 +1641,8 @@ export default function App() {
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinishedFallback?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,gap:8,flexWrap:"nowrap"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {m.group&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>Grp {m.group}</span>}
-          {m.slot&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>{slotLabel(m.slot)}</span>}
+          {m.slot&&!m.home&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>{slotLabel(m.slot)}</span>}
+          {m.slot&&m.home&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>M{m.id}</span>}
           {isLive&&<span style={{background:"rgba(220,30,30,0.9)",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:1,flexShrink:0}}>🔴 {live.minute?live.minute+"'":"LIVE"}</span>}
           {isFinishedFallback&&<span style={{...pill("muted"),fontSize:9,flexShrink:0}}>FT</span>}
         </div>
@@ -1944,7 +1951,7 @@ export default function App() {
   function GridView() {
     const [popup, setPopup] = useState(null);
     const [datePopup, setDatePopup] = useState(null);
-    const gridDates=activeDates.filter(d=>d<=today||players.some(p=>getDayPick(p,d))).slice(0,30);
+    const gridDates=allPickDates.slice(0,60);
     const activePlayers = players.filter(p=>!p.eliminated);
     const pot = players.length * 10;
     const others = [...players].filter(p=>p.id!=activeId).sort((a,b)=>b.lives-a.lives||a.name.localeCompare(b.name));
@@ -1979,7 +1986,15 @@ export default function App() {
     function handleDateClick(d) {
       const ms = getMatchesForPickDate(d);
       if(ms.length===0) return;
-      setDatePopup({date:d, matches:ms});
+      // Sort: same-day games first (by BST hour), early-hours next-day games last
+      const sorted = [...ms].sort((a,b) => {
+        const aLate = a.earlyHours ? 1 : 0;
+        const bLate = b.earlyHours ? 1 : 0;
+        if(aLate !== bLate) return aLate - bLate;
+        // Both same category — sort by BST kickoff time
+        return (a.kickoffBST||"").localeCompare(b.kickoffBST||"");
+      });
+      setDatePopup({date:d, matches:sorted});
     }
     function handleMatchesClick(d) {
       const ms = getMatchesForPickDate(d);
@@ -2024,7 +2039,7 @@ export default function App() {
                 </tr>
                 <tr>
                   <td style={{position:"sticky",left:0,background:"#0a1500",zIndex:2,borderBottom:`1px solid ${T.border}`}}></td>
-                  {gridDates.map(d=>{const ms=getMatchesForPickDate(d);return <td key={d} onClick={()=>handleMatchesClick(d)} style={{padding:"3px 4px",textAlign:"center",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}>{ms.map((m,i)=><div key={i} style={{fontSize:9,color:T.muted,lineHeight:1.4,whiteSpace:"nowrap"}}>{m.home&&m.away?`${f(m.home)}v${f(m.away)}`:m.slot?slotLabel(m.slot):""}</div>)}</td>;})}
+                  {gridDates.map(d=>{const ms=getMatchesForDisplay(d);return <td key={d} onClick={()=>handleMatchesClick(d)} style={{padding:"3px 4px",textAlign:"center",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}>{ms.map((m,i)=><div key={i} style={{fontSize:9,color:T.muted,lineHeight:1.4,whiteSpace:"nowrap"}}>{m.home&&m.away?`${f(m.home)}v${f(m.away)}`:m.slot?slotLabel(m.slot):""}</div>)}</td>;})}
                 </tr>
               </thead>
               <tbody>
@@ -2304,12 +2319,34 @@ export default function App() {
     const Conn = ({topFY, botFY, targY, leftX}) => {
       const midFY = (topFY + botFY) / 2;
       const mid = COL_GAP / 2;
+      // Use a full-height SVG with overflow visible so lines never clip
       return (
-        <svg style={{position:'absolute',left:leftX,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'hidden'}}>
+        <svg style={{position:'absolute',left:leftX,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'visible'}}>
           <line x1={0} y1={topFY} x2={mid} y2={topFY} stroke={T.amberBorder} strokeWidth={1}/>
           <line x1={0} y1={botFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
           <line x1={mid} y1={topFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          {/* L-shape: vertical from midpoint to target row, then horizontal */}
+          {/* Vertical from midpoint to target level, then horizontal into target card */}
+          <line x1={mid} y1={midFY} x2={mid} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
+          <line x1={mid} y1={targY} x2={COL_GAP} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
+        </svg>
+      );
+    };
+
+    // Clip mask for connector SVGs so lines don't overlap card boxes
+    // Each SVG is clipped to its column gap — lines stay in the gap, never touch cards
+    const connStyle = (leftX) => ({
+      position:'absolute', left:leftX, top:20,
+      width:COL_GAP, height:totalH,
+      pointerEvents:'none', overflow:'hidden'
+    });
+    const ConnClipped = ({topFY, botFY, targY, leftX}) => {
+      const midFY = (topFY + botFY) / 2;
+      const mid = COL_GAP / 2;
+      return (
+        <svg style={connStyle(leftX)}>
+          <line x1={0} y1={topFY} x2={mid} y2={topFY} stroke={T.amberBorder} strokeWidth={1}/>
+          <line x1={0} y1={botFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
+          <line x1={mid} y1={topFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
           <line x1={mid} y1={midFY} x2={mid} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
           <line x1={mid} y1={targY} x2={COL_GAP} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
         </svg>
@@ -2347,13 +2384,13 @@ export default function App() {
               <div key={g.r16} style={{position:'absolute',top:20+r16Pos[g.r16],left:CARD_W+COL_GAP}}><MatchCard slotId={g.r16}/></div>
             ))}
 
-            {/* R16→QF connectors */}
+            {/* R16→QF connectors — sit in gap between R16 and QF columns */}
             {r16Groups.map((g,gi)=>(
               <Conn key={gi}
                 topFY={r16Pos[g.r16[0]]+CARD_H/2}
                 botFY={r16Pos[g.r16[1]]+CARD_H/2}
                 targY={qfPos[g.qf]+CARD_H/2}
-                leftX={2*(CARD_W+COL_GAP)}/>
+                leftX={CARD_W+COL_GAP + CARD_W}/>
             ))}
 
             {/* QF */}
@@ -2361,13 +2398,13 @@ export default function App() {
               <div key={g.qf} style={{position:'absolute',top:20+qfPos[g.qf],left:2*(CARD_W+COL_GAP)}}><MatchCard slotId={g.qf}/></div>
             ))}
 
-            {/* QF→SF connectors */}
+            {/* QF→SF connectors — sit in gap between QF and SF columns */}
             {qfGroups.map((g,gi)=>(
               <Conn key={gi}
                 topFY={qfPos[g.qf[0]]+CARD_H/2}
                 botFY={qfPos[g.qf[1]]+CARD_H/2}
                 targY={sfPos[g.sf]+CARD_H/2}
-                leftX={3*(CARD_W+COL_GAP)}/>
+                leftX={2*(CARD_W+COL_GAP) + CARD_W}/>
             ))}
 
             {/* SF */}
@@ -3025,13 +3062,11 @@ export default function App() {
         const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
         const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
         return (
-          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:9999,background:"rgba(0,0,0,0.85)"}}
-            onClick={()=>setBracketPopup(null)}>
-            <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:"min(340px,90vw)",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,overflow:"hidden"}}
-              onClick={e=>e.stopPropagation()}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a"}}>
-                <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:3,color:"#c8a840"}}>{slotLabel(slot?.slot||"")}</span>
-                <button onClick={e=>{e.stopPropagation();setBracketPopup(null);}} style={{background:"rgba(255,255,255,0.1)",border:"1px solid #3a4a2a",color:"#d0c89e",fontSize:16,cursor:"pointer",padding:"4px 10px",borderRadius:6,fontWeight:700,lineHeight:1}}>✕</button>
+          <div onClick={()=>setBracketPopup(null)} style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div onClick={e=>e.stopPropagation()} style={{width:"min(340px,90vw)",maxHeight:"80vh",overflowY:"auto",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,display:"flex",flexDirection:"column"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a",position:"sticky",top:0,background:"#0f2008",zIndex:1}}>
+                <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:2,color:"#c8a840"}}>{slotLabel(slot?.slot||"")}</span>
+                <button onClick={e=>{e.stopPropagation();setBracketPopup(null);}} style={{background:"rgba(255,255,255,0.12)",border:"1px solid #3a4a2a",color:"#d0c89e",fontSize:16,fontWeight:700,cursor:"pointer",padding:"3px 10px",borderRadius:6,lineHeight:1}}>✕</button>
               </div>
               <div style={{padding:"12px 14px 16px"}}>
                 <div style={{fontSize:11,color:"#8a9e72",marginBottom:12}}>
@@ -3039,15 +3074,15 @@ export default function App() {
                   {winner&&<span style={{color:"#4CAF50",marginLeft:8}}>✓ Full Time</span>}
                 </div>
                 {[["home",fix.home],["away",fix.away]].map(([side,team])=>{
-                  const isWinner=winner===team, isLoser=loser===team;
+                  const isWinner=winner===team,isLoser=loser===team;
                   const score=scoreDisp?(side==="home"?scoreDisp.h:scoreDisp.a):null;
                   return (
-                    <div key={side} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",
+                    <div key={side} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:6,borderRadius:8,
                       background:isWinner?"rgba(0,132,61,0.2)":isLoser?"rgba(160,30,30,0.15)":"rgba(255,255,255,0.04)",
-                      borderRadius:8,marginBottom:6,border:"1px solid "+(isWinner?"#2a5a2a":isLoser?"rgba(160,30,30,0.3)":"#2a3a1a")}}>
+                      border:"1px solid "+(isWinner?"#2a7a2a":isLoser?"rgba(160,30,30,0.3)":"#2a3a1a")}}>
                       <span style={{fontSize:22,flexShrink:0}}>{f(team)}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:14,fontWeight:700,color:isWinner?"#c8a840":isLoser?"#888":"#d0c89e"}}>{team}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:700,color:isWinner?"#c8a840":isLoser?"#888":"#d0c89e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{team}</div>
                         {isWinner&&<div style={{fontSize:10,color:"#4CAF50"}}>Winner ✓</div>}
                       </div>
                       {score!==null&&<span style={{fontSize:22,fontWeight:900,color:"#c8a840",flexShrink:0}}>{score}</span>}
