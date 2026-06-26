@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, createPortal } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 
 function etToBst(etStr) {
@@ -437,7 +437,6 @@ export default function App() {
   const [popupSlides, setPopupSlides] = useState(null); // { slides:[{icon,title,body}], key }
   const [popupIdx, setPopupIdx] = useState(0);
   const [showStandings, setShowStandings] = useState(false);
-  const [bracketPopup, setBracketPopup] = useState(null);
   const toastRef = useRef(null);
 
   // ── Admin screen state, lifted to App level ────────────────────────────
@@ -2236,261 +2235,6 @@ export default function App() {
   ];
 
   // ── BRACKET VIEW ─────────────────────────────────────────────────────────
-  function BracketView() {
-    const CARD_H = 76;
-    const CARD_W = 148;
-    const GAP    = 8;
-    const COL_GAP = 36;
-    const GOLD = 'FFD700';
-
-    const getResult = (slotId) => {
-      const fix = koFixtures[slotId];
-      if(!fix) return null;
-      const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
-      if(!slot) return null;
-      const pd = slot.pickDate;
-      if(results[`${pd}|${fix.home}`]==='win') return {winner:fix.home,loser:fix.away};
-      if(results[`${pd}|${fix.away}`]==='win') return {winner:fix.away,loser:fix.home};
-      return null;
-    };
-
-    const getTeam = (slotId, side) => {
-      const fix = koFixtures[slotId];
-      if(fix?.[side]) return {name:fix[side], known:true};
-      const allB = {...R32_BRACKET,...R16_BRACKET,...QF_BRACKET,...SF_BRACKET,...FINAL_BRACKET};
-      const b = allB[slotId];
-      return {name: b?.[side]||'TBD', known:false};
-    };
-
-    const MatchCard = ({slotId}) => {
-      const fix = koFixtures[slotId];
-      const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
-      const result = getResult(slotId);
-      const hasTeams = !!(fix?.home && fix?.away);
-      const isFinished = !!result;
-      const home = getTeam(slotId,'home');
-      const away = getTeam(slotId,'away');
-      const persisted = results[`${slot?.pickDate}|__score__${slotId}`];
-      let score = null;
-      if(persisted){const[sp]=persisted.split(':');const[h,a]=sp.split('-').map(Number);score={h,a};}
-      return (
-        <div onClick={()=>hasTeams&&setBracketPopup(slotId)}
-          style={{
-            height:CARD_H,width:CARD_W,flexShrink:0,
-            background:isFinished?'rgba(0,100,30,0.22)':hasTeams?'rgba(255,215,0,0.07)':'rgba(255,255,255,0.03)',
-            border:`1px solid ${isFinished?T.greenBorder:hasTeams?T.amberBorder:T.border}`,
-            borderRadius:8,padding:'5px 8px',cursor:hasTeams?'pointer':'default',
-            boxSizing:'border-box',display:'flex',flexDirection:'column',justifyContent:'space-between'
-          }}>
-          <div style={{fontSize:8,color:T.muted,lineHeight:1.3}}>
-            {slotLabel(slot?.slot||'')}
-            {slot&&<span style={{marginLeft:4}}>{fmtDate(slot.pickDate)} · {fmtBST(slot.kickoffBST)}</span>}
-            {isFinished&&<span style={{color:T.green,marginLeft:4}}>FT</span>}
-          </div>
-          <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',gap:2,marginTop:3}}>
-            {[home,away].map((team,i)=>{
-              const isWinner = result?.winner===team.name;
-              const isLoser  = result?.loser===team.name;
-              const sideScore = score?(i===0?score.h:score.a):null;
-              return (
-                <div key={i} style={{display:'flex',alignItems:'center',gap:3,opacity:isLoser?0.4:1}}>
-                  <span style={{fontSize:10,flexShrink:0}}>{team.known?f(team.name):''}</span>
-                  <span style={{fontSize:10,fontWeight:isWinner?700:400,flex:1,color:isWinner?T.amber:!team.known?T.muted:T.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{team.name}</span>
-                  {sideScore!==null&&<span style={{fontSize:11,fontWeight:900,color:T.amber,flexShrink:0}}>{sideScore}</span>}
-                  {isWinner&&!score&&<span style={{fontSize:8,color:T.green,flexShrink:0}}>✓</span>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-    };
-
-    const r32Groups = [
-      {r32:[74,77],r16:89},{r32:[73,75],r16:90},  // → QF97 (top half)
-      {r32:[83,84],r16:93},{r32:[81,82],r16:94},  // → QF98 (top half)
-      {r32:[76,78],r16:91},{r32:[79,80],r16:92},  // → QF99 (bottom half)
-      {r32:[86,88],r16:95},{r32:[85,87],r16:96},  // → QF100 (bottom half)
-    ];
-    const r16Groups = [
-      {r16:[89,90],qf:97},{r16:[93,94],qf:98},    // QF97+QF98 → SF101
-      {r16:[91,92],qf:99},{r16:[95,96],qf:100},   // QF99+QF100 → SF102
-    ];
-    const qfGroups = [
-      {qf:[97,98],sf:101},{qf:[99,100],sf:102},   // SF101=W97vW98, SF102=W99vW100
-    ];
-
-    const r32Pos = {};
-    let y = 0;
-    r32Groups.forEach(g => {
-      g.r32.forEach((id,i) => { r32Pos[id] = y + i*(CARD_H+GAP); });
-      y += 2*(CARD_H+GAP) + (CARD_H+GAP);
-    });
-
-    const r16Pos = {};
-    r32Groups.forEach(g => {
-      const topY = r32Pos[g.r32[0]];
-      const botY = r32Pos[g.r32[1]];
-      r16Pos[g.r16] = (topY + botY) / 2;
-    });
-
-    const qfPos = {};
-    r16Groups.forEach(g => {
-      const topY = r16Pos[g.r16[0]];
-      const botY = r16Pos[g.r16[1]];
-      qfPos[g.qf] = (topY + botY) / 2;
-    });
-
-    const sfPos = {};
-    qfGroups.forEach(g => {
-      const topY = qfPos[g.qf[0]];
-      const botY = qfPos[g.qf[1]];
-      sfPos[g.sf] = (topY + botY) / 2;
-    });
-
-    const finalY = (sfPos[101] + sfPos[102]) / 2;
-    const thirdY = finalY + CARD_H + GAP * 4;
-
-    const totalH = Math.max(...Object.values(r32Pos), thirdY) + CARD_H + 40;
-    const totalW = 5*(CARD_W+COL_GAP) + 2;
-
-    const Conn = ({topFY, botFY, targY, leftX}) => {
-      const midFY = (topFY + botFY) / 2;
-      const mid = COL_GAP / 2;
-      // Use a full-height SVG with overflow visible so lines never clip
-      return (
-        <svg style={{position:'absolute',left:leftX,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'visible'}}>
-          <line x1={0} y1={topFY} x2={mid} y2={topFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={0} y1={botFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={mid} y1={topFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          {/* Vertical from midpoint to target level, then horizontal into target card */}
-          <line x1={mid} y1={midFY} x2={mid} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={mid} y1={targY} x2={COL_GAP} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
-        </svg>
-      );
-    };
-
-    // Clip mask for connector SVGs so lines don't overlap card boxes
-    // Each SVG is clipped to its column gap — lines stay in the gap, never touch cards
-    const connStyle = (leftX) => ({
-      position:'absolute', left:leftX, top:20,
-      width:COL_GAP, height:totalH,
-      pointerEvents:'none', overflow:'hidden'
-    });
-    const ConnClipped = ({topFY, botFY, targY, leftX}) => {
-      const midFY = (topFY + botFY) / 2;
-      const mid = COL_GAP / 2;
-      return (
-        <svg style={connStyle(leftX)}>
-          <line x1={0} y1={topFY} x2={mid} y2={topFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={0} y1={botFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={mid} y1={topFY} x2={mid} y2={botFY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={mid} y1={midFY} x2={mid} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
-          <line x1={mid} y1={targY} x2={COL_GAP} y2={targY} stroke={T.amberBorder} strokeWidth={1}/>
-        </svg>
-      );
-    };
-
-    return (
-      <div>
-        <div style={{fontSize:10,textTransform:'uppercase',letterSpacing:3,color:T.amber,marginBottom:8}}>🏆 Knockout Bracket</div>
-        <div style={{fontSize:11,color:T.muted,marginBottom:12}}>Tap any confirmed fixture for details.</div>
-        <div style={{overflowX:'auto',paddingBottom:8}}>
-          <div style={{position:'relative',width:totalW,height:totalH+60}}>
-
-            {/* Column headers */}
-            {[['R32',0],['R16',1],['QF',2],['SF',3],['Final',4]].map(([lbl,ci])=>(
-              <div key={lbl} style={{position:'absolute',top:0,left:ci*(CARD_W+COL_GAP),width:CARD_W,textAlign:'center',fontSize:10,fontWeight:700,color:T.amber,letterSpacing:2,textTransform:'uppercase'}}>{lbl}</div>
-            ))}
-
-            {/* R32 */}
-            {r32Groups.map(g=>g.r32.map(id=>(
-              <div key={id} style={{position:'absolute',top:20+r32Pos[id],left:0}}><MatchCard slotId={id}/></div>
-            )))}
-
-            {/* R32→R16 connectors */}
-            {r32Groups.map((g,gi)=>(
-              <Conn key={gi}
-                topFY={r32Pos[g.r32[0]]+CARD_H/2}
-                botFY={r32Pos[g.r32[1]]+CARD_H/2}
-                targY={r16Pos[g.r16]+CARD_H/2}
-                leftX={CARD_W}/>
-            ))}
-
-            {/* R16 */}
-            {r32Groups.map(g=>(
-              <div key={g.r16} style={{position:'absolute',top:20+r16Pos[g.r16],left:CARD_W+COL_GAP}}><MatchCard slotId={g.r16}/></div>
-            ))}
-
-            {/* R16→QF connectors — sit in gap between R16 and QF columns */}
-            {r16Groups.map((g,gi)=>(
-              <Conn key={gi}
-                topFY={r16Pos[g.r16[0]]+CARD_H/2}
-                botFY={r16Pos[g.r16[1]]+CARD_H/2}
-                targY={qfPos[g.qf]+CARD_H/2}
-                leftX={CARD_W+COL_GAP + CARD_W}/>
-            ))}
-
-            {/* QF */}
-            {r16Groups.map(g=>(
-              <div key={g.qf} style={{position:'absolute',top:20+qfPos[g.qf],left:2*(CARD_W+COL_GAP)}}><MatchCard slotId={g.qf}/></div>
-            ))}
-
-            {/* QF→SF connectors — sit in gap between QF and SF columns */}
-            {qfGroups.map((g,gi)=>(
-              <Conn key={gi}
-                topFY={qfPos[g.qf[0]]+CARD_H/2}
-                botFY={qfPos[g.qf[1]]+CARD_H/2}
-                targY={sfPos[g.sf]+CARD_H/2}
-                leftX={2*(CARD_W+COL_GAP) + CARD_W}/>
-            ))}
-
-            {/* SF */}
-            {[101,102].map(id=>(
-              <div key={id} style={{position:'absolute',top:20+sfPos[id],left:3*(CARD_W+COL_GAP)}}><MatchCard slotId={id}/></div>
-            ))}
-
-            {/* SF→Final (solid) + SF→3rd place (dashed) */}
-            <svg style={{position:'absolute',left:4*(CARD_W+COL_GAP)-COL_GAP,top:20,width:COL_GAP,height:totalH,pointerEvents:'none',overflow:'hidden'}}>
-              {/* Winners: horizontal out → vertical join → vertical to final row → horizontal in */}
-              <line x1={0} y1={sfPos[101]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[101]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
-              <line x1={0} y1={sfPos[102]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[102]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
-              <line x1={COL_GAP/2} y1={sfPos[101]+CARD_H/2} x2={COL_GAP/2} y2={sfPos[102]+CARD_H/2} stroke={T.amberBorder} strokeWidth={1}/>
-              <line x1={COL_GAP/2} y1={finalY+CARD_H/2} x2={COL_GAP/2} y2={finalY+CARD_H/2} stroke="#FFD700" strokeWidth={1.5}/>
-              <line x1={COL_GAP/2} y1={finalY+CARD_H/2} x2={COL_GAP} y2={finalY+CARD_H/2} stroke="#FFD700" strokeWidth={1.5}/>
-              {/* Losers to 3rd place (dashed L-shape) */}
-              <line x1={0} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[101]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
-              <line x1={0} y1={sfPos[102]+CARD_H*0.7} x2={COL_GAP/4} y2={sfPos[102]+CARD_H*0.7} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
-              <line x1={COL_GAP/4} y1={sfPos[101]+CARD_H*0.7} x2={COL_GAP/4} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
-              <line x1={COL_GAP/4} y1={thirdY+CARD_H/2} x2={COL_GAP} y2={thirdY+CARD_H/2} stroke={T.muted} strokeWidth={1} strokeDasharray="3,3"/>
-            </svg>
-
-            {/* Final */}
-            <div style={{position:'absolute',top:20+finalY,left:4*(CARD_W+COL_GAP)}}>
-              <div style={{fontSize:9,fontWeight:700,color:'#'+GOLD,textAlign:'center',marginBottom:3,letterSpacing:2}}>🏆 FINAL</div>
-              <MatchCard slotId={104}/>
-            </div>
-
-            {/* 3rd Place */}
-            <div style={{position:'absolute',top:20+thirdY,left:4*(CARD_W+COL_GAP)}}>
-              <div style={{fontSize:9,fontWeight:700,color:T.muted,textAlign:'center',marginBottom:3,letterSpacing:2}}>3RD PLACE</div>
-              <MatchCard slotId={103}/>
-            </div>
-
-          </div>
-        </div>
-
-        <div style={{display:'flex',gap:12,flexWrap:'wrap',marginTop:16,fontSize:11,color:T.muted}}>
-          <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:12,height:12,borderRadius:2,background:'rgba(255,215,0,0.07)',border:`1px solid ${T.amberBorder}`}}></div>Confirmed</div>
-          <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:12,height:12,borderRadius:2,background:'rgba(0,100,30,0.22)',border:`1px solid ${T.greenBorder}`}}></div>Finished</div>
-          <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:12,height:12,borderRadius:2,background:'rgba(255,255,255,0.03)',border:`1px solid ${T.border}`}}></div>TBD</div>
-          <div style={{display:'flex',alignItems:'center',gap:5}}><svg width={24} height={8}><line x1={0} y1={4} x2={24} y2={4} stroke={T.amberBorder} strokeWidth={1}/></svg>Winner progresses</div>
-          <div style={{display:'flex',alignItems:'center',gap:5}}><svg width={24} height={8}><line x1={0} y1={4} x2={24} y2={4} stroke={T.muted} strokeWidth={1} strokeDasharray='3,3'/></svg>Loser → 3rd place</div>
-        </div>
-      </div>
-    );
-  }
-
   function RulesView() {
     const [showRankings, setShowRankings] = useState(false);
     const [showTiebreakRules, setShowTiebreakRules] = useState(false);
@@ -3007,7 +2751,7 @@ export default function App() {
           </div>
           {/* Row 2: Nav tabs */}
           <div style={{display:"flex",borderTop:`1px solid rgba(255,255,255,0.06)`}}>
-            {(activePlayer?[["","My Picks","pick"],["","Grid","grid"],["","Schedule","schedule"],["","Bracket","bracket"],["","Rules","rules"]]:[["","Grid","grid"],["","Schedule","schedule"],["","Bracket","bracket"],["","Rules","rules"]]).map(([icon,label,key])=>(
+            {(activePlayer?[["","My Picks","pick"],["","Grid","grid"],["","Schedule","schedule"],["","Rules","rules"]]:[["","Grid","grid"],["","Schedule","schedule"],["","Rules","rules"]]).map(([icon,label,key])=>(
               <button key={key} onClick={()=>setScreen(key)} style={{flex:1,padding:"9px 4px",background:screen===key?T.amberBg:"transparent",border:"none",borderBottom:screen===key?`2px solid ${T.amber}`:"2px solid transparent",color:screen===key?T.amber:T.muted,cursor:"pointer",fontSize:12,fontWeight:screen===key?700:400,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"all 0.15s"}}>
                 {icon} {label}
               </button>
@@ -3023,7 +2767,6 @@ export default function App() {
         {screen==="pick"     &&<PickScreen/>}
         {screen==="grid"     &&<GridView/>}
         {screen==="schedule" &&<Schedule/>}
-        {screen==="bracket"  &&<BracketView/>}
         {screen==="rules"    &&<RulesView/>}
         {screen==="admin"    &&<Admin/>}
       </main>
@@ -3085,61 +2828,6 @@ export default function App() {
         );
       })()}
       {/* ── BRACKET MATCH POPUP ── */}
-      {bracketPopup&&(()=>{
-        const slotId = bracketPopup;
-        const fix = koFixtures[slotId];
-        const slot = KNOCKOUT_SLOTS.find(s=>s.id===slotId);
-        if(!fix) return null;
-        const persisted = results[`${slot?.pickDate}|__score__${slotId}`];
-        let scoreDisp = null;
-        if(persisted){const [sp]=persisted.split(":");const [h,a]=sp.split("-").map(Number);scoreDisp={h,a};}
-        const homeRes = results[`${slot?.pickDate}|${fix.home}`];
-        const awayRes = results[`${slot?.pickDate}|${fix.away}`];
-        const winner = homeRes==="win"?fix.home:awayRes==="win"?fix.away:null;
-        const loser  = winner===fix.home?fix.away:winner===fix.away?fix.home:null;
-        const myPick = activePlayer ? getDayPick(activePlayer, slot?.pickDate) : null;
-        const myPickIsThis = myPick && String(myPick.matchId)===String(slotId);
-        return createPortal(
-          <div onClick={()=>setBracketPopup(null)} style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",zIndex:99999,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{width:"320px",maxWidth:"calc(100vw - 40px)",maxHeight:"calc(100vh - 80px)",background:"#0f2008",border:"1px solid #5a4a20",borderRadius:12,display:"flex",flexDirection:"column",overflow:"hidden"}}
-              onClick={e=>e.stopPropagation()}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid #2a3a1a",flexShrink:0}}>
-                <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:2,color:"#c8a840"}}>{slotLabel(slot?.slot||"")}</span>
-                <button onClick={e=>{e.stopPropagation();setBracketPopup(null);}} style={{background:"rgba(255,255,255,0.12)",border:"1px solid #3a4a2a",color:"#d0c89e",fontSize:16,fontWeight:700,cursor:"pointer",padding:"3px 10px",borderRadius:6,lineHeight:1,flexShrink:0}}>✕</button>
-              </div>
-              <div style={{overflowY:"auto",padding:"12px 14px 16px",flex:1}}>
-                <div style={{fontSize:11,color:"#8a9e72",marginBottom:12}}>
-                  {fmtDate(slot?.pickDate)} · {fmtBST(slot?.kickoffBST)} BST
-                  {winner&&<span style={{color:"#4CAF50",marginLeft:8}}>✓ Full Time</span>}
-                </div>
-                {[["home",fix.home],["away",fix.away]].map(([side,team])=>{
-                  const isWinner=winner===team,isLoser=loser===team;
-                  const score=scoreDisp?(side==="home"?scoreDisp.h:scoreDisp.a):null;
-                  return (
-                    <div key={side} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:6,borderRadius:8,
-                      background:isWinner?"rgba(0,132,61,0.2)":isLoser?"rgba(160,30,30,0.15)":"rgba(255,255,255,0.04)",
-                      border:"1px solid "+(isWinner?"#2a7a2a":isLoser?"rgba(160,30,30,0.3)":"#2a3a1a")}}>
-                      <span style={{fontSize:22,flexShrink:0}}>{f(team)}</span>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,fontWeight:700,color:isWinner?"#c8a840":isLoser?"#888":"#d0c89e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{team}</div>
-                        {isWinner&&<div style={{fontSize:10,color:"#4CAF50"}}>Winner ✓</div>}
-                      </div>
-                      {score!==null&&<span style={{fontSize:22,fontWeight:900,color:"#c8a840",flexShrink:0}}>{score}</span>}
-                    </div>
-                  );
-                })}
-                {myPickIsThis&&(
-                  <div style={{marginTop:8,padding:"8px 12px",background:"rgba(200,168,64,0.15)",borderRadius:8,fontSize:12,color:"#c8a840"}}>
-                    👤 Your pick: {f(myPick.choice)} {myPick.choice}
-                    {winner&&myPick.choice===winner&&<span style={{marginLeft:6,color:"#4CAF50"}}>✓ Correct</span>}
-                    {winner&&myPick.choice!==winner&&<span style={{marginLeft:6,color:"#ff8080"}}>✗ Wrong</span>}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        , document.body);
-      })()}
       {/* ── POPUP CAROUSEL ── */}
       {popupSlides&&popupSlides.slides.length>0&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
