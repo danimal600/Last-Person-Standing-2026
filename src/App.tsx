@@ -1686,7 +1686,7 @@ export default function App() {
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:isLive?"rgba(200,30,30,0.12)":isFinishedFallback?"rgba(0,0,0,0.28)":"rgba(0,0,0,0.22)",border:isLive?`1px solid rgba(220,50,50,0.4)`:"1px solid transparent",borderRadius:8,marginBottom:5,gap:8,flexWrap:"nowrap"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {m.group&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>Grp {m.group}</span>}
-          {m.slot&&!m.home&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>{slotLabel(m.slot)}</span>}
+          {m.slot&&!m.home&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>{resolvedSlotLabel(m.slot)}</span>}
           {m.slot&&m.home&&<span style={{...pill("muted"),fontSize:10,flexShrink:0}}>M{m.id}</span>}
           {isLive&&<span style={{background:"rgba(220,30,30,0.9)",color:"#fff",fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:4,letterSpacing:1,flexShrink:0}}>🔴 {live.minute?live.minute+"'":"LIVE"}</span>}
           {isFinishedFallback&&<span style={{...pill("muted"),fontSize:9,flexShrink:0}}>FT</span>}
@@ -1814,7 +1814,34 @@ export default function App() {
 
     // ── Hooks must be called before any early return ──────────────────
     const [now, setNow] = useState(()=>new Date());
+    const [plannerOpen, setPlannerOpen] = useState({});
     useEffect(()=>{ const i=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(i); },[]);
+
+    // Resolves R16/QF slot labels replacing W(MXX) with confirmed winner names
+    // Results are keyed as "pick_date|team" → outcome string ("win"/"loss" etc)
+    const resolvedSlotLabel = (slot) => {
+      const base = slotLabel(slot);
+      return base.replace(/W\(M(\d+)\)/g, (match, r32id) => {
+        const id = Number(r32id);
+        const fix = koFixtures[id];
+        if (!fix?.home || !fix?.away) return match;
+        const slot32 = KNOCKOUT_SLOTS.find(s=>s.id===id);
+        if (!slot32) return match;
+        const pd = slot32.pickDate;
+        if (results[`${pd}|${fix.home}`]==="win") return fix.home;
+        if (results[`${pd}|${fix.away}`]==="win") return fix.away;
+        // Both teams known but result not yet — show "Team A/Team B"
+        return `${fix.home}/${fix.away}`;
+      });
+    };
+
+    // R32 match → R16 match it feeds
+    const R32_TO_R16_MAP = {
+      73:90, 75:90,  74:89, 77:89,
+      76:91, 78:91,  79:92, 80:92,
+      83:93, 84:93,  81:94, 82:94,
+      86:95, 88:95,  85:96, 87:96,
+    };
 
     if(!p) return <div style={card}><p style={{color:T.muted,marginBottom:12}}>Not signed in.</p><button style={btn()} onClick={()=>setScreen("profile")}>← Choose profile</button></div>;
     const upcomingDates=activeDates.filter(d=>d>=today);
@@ -1942,6 +1969,120 @@ export default function App() {
                       </div>
                     );
                   })}
+
+                  {/* ── Pick Planner — once per pick day, below all matches ── */}
+                  {(()=>{
+                    if(!dayPick) return null;
+                    const pickedTeam  = dayPick.choice;
+                    const pickedMid   = Number(dayPick.matchId);
+                    const myR16Id     = R32_TO_R16_MAP[pickedMid];
+                    if(!myR16Id) return null;
+                    const myR16Slot   = KNOCKOUT_SLOTS.find(s=>s.id===myR16Id);
+                    if(!myR16Slot) return null;
+                    const r16PickDate = myR16Slot.pickDate;
+
+                    // Both R16 matches on that pick day, sorted by BST kickoff
+                    const r16DaySlots = KNOCKOUT_SLOTS
+                      .filter(s=>s.pickDate===r16PickDate&&s.id>=89&&s.id<=96)
+                      .sort((a,b)=>{
+                        const h=t=>{const hr=parseInt((t?.kickoffBST||"12").split(":")[0]);return hr<6?hr+24:hr;};
+                        return h(a)-h(b);
+                      });
+
+                    // For each R16 slot, resolve team names from the two R32 feeders
+                    const resolveTeams=(r32id)=>{
+                      const fix=koFixtures[r32id];
+                      return fix?.home&&fix?.away?[fix.home,fix.away]:[];
+                    };
+
+                    const isOpen = plannerOpen[pickDate]||false;
+
+                    return(
+                      <div style={{marginTop:10}}>
+                        <button
+                          onClick={()=>setPlannerOpen(prev=>({...prev,[pickDate]:!prev[pickDate]}))}
+                          style={{width:"100%",background:isOpen?"rgba(74,184,200,0.1)":"transparent",
+                                   cursor:"pointer",border:"1px solid #1a4a5a",
+                                   borderRadius:isOpen?"8px 8px 0 0":8,
+                                   padding:"8px 12px",fontSize:12,color:"#4ab8c8",
+                                   display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span>🔵 Pick Planner</span>
+                          <span style={{fontSize:11,color:"#5a8a96"}}>{isOpen?"▲":"▼"}</span>
+                        </button>
+
+                        {isOpen&&(
+                          <div style={{background:"#020d18",border:"1px solid #1a4a5a",
+                                        borderTop:"none",borderRadius:"0 0 8px 8px",overflow:"hidden"}}>
+                            {/* Context line */}
+                            <div style={{padding:"8px 12px",borderBottom:"1px solid #0d2a3a"}}>
+                              <div style={{fontSize:11,color:"#5a8a96",fontStyle:"italic"}}>
+                                If {f(pickedTeam)} {pickedTeam} wins, you cannot pick them on their R16 day ({fmtDate(r16PickDate)})
+                              </div>
+                            </div>
+                            {/* R16 match rows */}
+                            {r16DaySlots.map((slot,si)=>{
+                              const isThisOne = slot.id===myR16Id;
+                              const feeders   = Object.entries(R32_TO_R16_MAP)
+                                .filter(([,r16])=>Number(r16)===slot.id)
+                                .map(([id])=>Number(id));
+                              const [feedA,feedB] = feeders;
+                              const teamsA = resolveTeams(feedA);
+                              const teamsB = resolveTeams(feedB);
+
+                              const TeamBox=({teams,r32id,isYours})=>(
+                                <div style={{flex:1,padding:"6px 8px",borderRadius:6,
+                                              background:isYours?"rgba(74,184,200,0.1)":"rgba(255,255,255,0.03)",
+                                              border:`1px solid ${isYours?"#1a4a5a":"#0d2a3a"}`}}>
+                                  {teams.length>0?teams.map((team,ti)=>{
+                                    const used=usedPhase.includes(team)&&team!==pickedTeam;
+                                    return(
+                                      <div key={team} style={{display:"flex",alignItems:"center",
+                                                               gap:3,marginBottom:ti===0?2:0}}>
+                                        <span style={{fontSize:15}}>{f(team)}</span>
+                                        <span style={{fontSize:11,fontWeight:600,flex:1,
+                                                       color:used?"#ff6b6b":isYours?"#4ab8c8":"#c0dde6",
+                                                       textDecoration:used?"line-through":"none"}}>
+                                          {team}
+                                        </span>
+                                        {used&&<span style={{fontSize:9,color:"#ff6b6b"}}>✗</span>}
+                                      </div>
+                                    );
+                                  }):(
+                                    <span style={{fontSize:11,color:"#5a8a96",fontStyle:"italic"}}>TBC</span>
+                                  )}
+                                </div>
+                              );
+
+                              return(
+                                <div key={slot.id}
+                                  style={{padding:"8px 12px",
+                                           background:isThisOne?"rgba(74,184,200,0.04)":"transparent",
+                                           borderBottom:si<r16DaySlots.length-1?"1px solid #0d2a3a":"none",
+                                           display:"flex",alignItems:"center",gap:8}}>
+                                  {/* Match number left */}
+                                  <div style={{width:30,flexShrink:0,textAlign:"center"}}>
+                                    <div style={{fontSize:10,fontWeight:700,
+                                                  color:isThisOne?"#4ab8c8":"#5a8a96"}}>
+                                      M{slot.id}
+                                    </div>
+                                    {isThisOne&&(
+                                      <div style={{width:5,height:5,borderRadius:"50%",
+                                                    background:"#4ab8c8",margin:"2px auto 0"}}/>
+                                    )}
+                                  </div>
+                                  {/* Box vs Box */}
+                                  <TeamBox teams={teamsA} r32id={feedA} isYours={isThisOne}/>
+                                  <div style={{fontSize:11,color:"#5a8a96",fontWeight:700,flexShrink:0}}>vs</div>
+                                  <TeamBox teams={teamsB} r32id={feedB} isYours={false}/>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {locked&&!dayPick&&<div style={{fontSize:12,color:T.red}}>⚠️ No pick made — Howard's Law will apply.</div>}
                 </div>
               );
@@ -1978,6 +2119,20 @@ export default function App() {
                   {sorted.map((m,i)=>{
                     const myPick=p.picks[String(m.id)];
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
+                    const showPlanner = plannerOpen[m.id]||false;
+                    const setShowPlanner = (v)=>setPlannerOpen(prev=>({...prev,[m.id]:v}));
+
+                    // R16 consequence for this R32 match
+                    const r16Id = R32_TO_R16_MAP[m.id];
+                    const r16Slot = r16Id ? KNOCKOUT_SLOTS.find(s=>s.id===r16Id) : null;
+                    const r16Fix  = r16Id ? koFixtures[r16Id] : null;
+                    // sibling R32 that feeds same R16
+                    const sibR32Id = r16Id
+                      ? Object.entries(R32_TO_R16_MAP).find(([id,r16])=>Number(r16)===r16Id&&Number(id)!==m.id)?.[0]
+                      : null;
+                    const sibFix = sibR32Id ? koFixtures[Number(sibR32Id)] : null;
+                    const sibSlot = sibR32Id ? KNOCKOUT_SLOTS.find(s=>s.id===Number(sibR32Id)) : null;
+
                     return (
                       <div key={i} style={{marginBottom:8,opacity:otherMatchPicked?0.4:1}}>
                         <div style={{fontSize:11,color:T.muted,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
@@ -1995,6 +2150,149 @@ export default function App() {
                           </button>;
                         })}
                         </div>
+
+                        {/* ── R16 Planner button ── */}
+                        {r16Id&&m.home&&m.away&&(
+                          <div style={{marginTop:6}}>
+                            <button
+                              onClick={()=>setShowPlanner(!showPlanner)}
+                              style={{width:"100%",background:"transparent",border:`1px solid ${T.amberBorder}`,borderRadius:8,padding:"6px 10px",fontSize:11,color:T.amber,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                              <span>🗺 R16 Planner — if I pick here, what's my R16 day?</span>
+                              <span>{showPlanner?"▲":"▼"}</span>
+                            </button>
+
+                            {showPlanner&&(
+                              <div style={{marginTop:4,background:"#0d1a0d",border:`1px solid ${T.amberBorder}`,borderRadius:10,overflow:"hidden"}}>
+
+                                {/* Header */}
+                                <div style={{background:"#1a2e1a",padding:"8px 12px",borderBottom:`1px solid ${T.border}`}}>
+                                  <div style={{fontSize:10,color:T.amber,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>
+                                    Winner of M{m.id} plays in R16:
+                                  </div>
+                                  <div style={{fontSize:11,color:T.muted,marginTop:2}}>
+                                    {r16Slot?`${fmtDate(r16Slot.pickDate)} · deadline ${fmtBST(r16Slot.kickoffBST)} BST`:"Date TBC"}
+                                  </div>
+                                </div>
+
+                                {/* The R16 day — show BOTH matches on that day */}
+                                {(()=>{
+                                  // Find all R16 matches on the same pick day as r16Id
+                                  const r16PickDate = r16Slot?.pickDate;
+                                  const r16DaySlots = r16PickDate
+                                    ? KNOCKOUT_SLOTS.filter(s=>s.pickDate===r16PickDate&&s.phase==="L32_L16")
+                                    : [r16Slot].filter(Boolean);
+
+                                  return r16DaySlots.map((slot,si)=>{
+                                    const isThisMatch = slot.id === r16Id;
+                                    const fix = koFixtures[slot.id];
+
+                                    // Resolve team names for this R16 slot
+                                    // Find the two R32 matches that feed this R16
+                                    const feeders = Object.entries(R32_TO_R16_MAP)
+                                      .filter(([,r16])=>Number(r16)===slot.id)
+                                      .map(([r32id])=>Number(r32id));
+
+                                    const getTeamForFeeder = (r32id) => {
+                                      const feederFix = koFixtures[r32id];
+                                      if(feederFix?.home && feederFix?.away) {
+                                        // Both teams known — show both options
+                                        return { home: feederFix.home, away: feederFix.away, confirmed: false, r32id };
+                                      }
+                                      return { home: null, away: null, confirmed: false, r32id };
+                                    };
+
+                                    const [feederA, feederB] = feeders.map(getTeamForFeeder);
+
+                                    // For display: show "Team A or Team B" for each side
+                                    const sideLabel = (feeder) => {
+                                      if(!feeder) return "TBC";
+                                      if(fix?.home && feeder.r32id===feeders[0]) return fix.home;
+                                      if(fix?.away && feeder.r32id===feeders[1]) return fix.away;
+                                      if(feeder.home && feeder.away) return `${f(feeder.home)}${feeder.home} or ${f(feeder.away)}${feeder.away}`;
+                                      return `W(M${feeder.r32id})`;
+                                    };
+
+                                    // Check if either side is used by this player
+                                    const sideATeams = [feederA?.home, feederA?.away].filter(Boolean);
+                                    const sideBTeams = [feederB?.home, feederB?.away].filter(Boolean);
+                                    const sideAUsed = sideATeams.some(t=>usedPhase.includes(t));
+                                    const sideBUsed = sideBTeams.some(t=>usedPhase.includes(t));
+
+                                    return (
+                                      <div key={slot.id} style={{padding:"10px 12px",borderBottom:si<r16DaySlots.length-1?`1px solid ${T.border}`:"none",background:isThisMatch?"rgba(201,168,76,0.08)":"transparent"}}>
+                                        {isThisMatch&&<div style={{fontSize:9,color:T.amber,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>← M{m.id} winner plays here</div>}
+
+                                        <div style={{fontSize:10,color:T.muted,marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+                                          <span style={{fontWeight:700,color:T.text}}>M{slot.id}</span>
+                                          <span>{fix?`${fmtBST(slot.kickoffBST)} BST`:fmtBST(slot.kickoffBST)+" BST"}</span>
+                                        </div>
+
+                                        {/* Two sides of the R16 match */}
+                                        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                                          {/* Side A */}
+                                          <div style={{flex:1,minWidth:0}}>
+                                            {feederA && (feederA.home||feederA.away) ? (
+                                              <div style={{background:"rgba(255,255,255,0.06)",borderRadius:6,padding:"5px 8px"}}>
+                                                <div style={{fontSize:9,color:T.muted,marginBottom:3}}>W(M{feederA.r32id})</div>
+                                                {[feederA.home,feederA.away].filter(Boolean).map((t,ti)=>(
+                                                  <div key={t} style={{fontSize:11,fontWeight:700,
+                                                    color:usedPhase.includes(t)?T.red:isThisMatch&&feeders[0]===feederA.r32id?T.amber:T.text,
+                                                    display:"flex",alignItems:"center",gap:3,marginBottom:ti===0&&feederA.away?2:0}}>
+                                                    {f(t)}{t}
+                                                    {usedPhase.includes(t)&&<span style={{fontSize:9,color:T.red}}>✗used</span>}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ):(
+                                              <div style={{background:"rgba(255,255,255,0.04)",borderRadius:6,padding:"5px 8px",fontSize:11,color:T.muted}}>
+                                                W(M{feederA?.r32id||"?"}) TBC
+                                              </div>
+                                            )}
+                                          </div>
+
+                                          <div style={{fontSize:11,color:T.muted,fontWeight:700,flexShrink:0}}>vs</div>
+
+                                          {/* Side B */}
+                                          <div style={{flex:1,minWidth:0}}>
+                                            {feederB && (feederB.home||feederB.away) ? (
+                                              <div style={{background:"rgba(255,255,255,0.06)",borderRadius:6,padding:"5px 8px"}}>
+                                                <div style={{fontSize:9,color:T.muted,marginBottom:3}}>W(M{feederB.r32id})</div>
+                                                {[feederB.home,feederB.away].filter(Boolean).map((t,ti)=>(
+                                                  <div key={t} style={{fontSize:11,fontWeight:700,
+                                                    color:usedPhase.includes(t)?T.red:isThisMatch&&feeders[1]===feederB.r32id?T.amber:T.text,
+                                                    display:"flex",alignItems:"center",gap:3,marginBottom:ti===0&&feederB.away?2:0}}>
+                                                    {f(t)}{t}
+                                                    {usedPhase.includes(t)&&<span style={{fontSize:9,color:T.red}}>✗used</span>}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ):(
+                                              <div style={{background:"rgba(255,255,255,0.04)",borderRadius:6,padding:"5px 8px",fontSize:11,color:T.muted}}>
+                                                W(M{feederB?.r32id||"?"}) TBC
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Used warning */}
+                                        {isThisMatch&&(sideAUsed||sideBUsed)&&(
+                                          <div style={{marginTop:6,fontSize:10,color:T.red,background:"rgba(139,26,26,0.15)",borderRadius:6,padding:"4px 8px"}}>
+                                            ⚠️ You've already used a team on one side — check you're happy with your R16 options
+                                          </div>
+                                        )}
+                                        {isThisMatch&&!sideAUsed&&!sideBUsed&&(feederA?.home||feederB?.home)&&(
+                                          <div style={{marginTop:6,fontSize:10,color:"#4CAF50",background:"rgba(76,175,80,0.1)",borderRadius:6,padding:"4px 8px"}}>
+                                            ✓ All R16 options still available to you
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  });
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
