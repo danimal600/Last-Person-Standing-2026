@@ -1006,7 +1006,20 @@ export default function App() {
       for(const pickDate of allPickDates) {
         if(!isLocked(pickDate)) continue; // deadline hasn't passed yet
         if(results[`${pickDate}|__howards_done__`]) continue; // permanently processed — never re-check
-        const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!getDayPick(p,pickDate));
+        // Use hasAnyPickOnDate to avoid match_id false-negatives
+        const hasAnyPickOnDate = (p) => {
+          if(getDayPick(p, pickDate)) return true;
+          return Object.keys(p.picks||{}).some(matchId => {
+            const pk = p.picks[matchId];
+            if(Array.isArray(pk)) return pk.some(r=>r.pick_date===pickDate&&r.choice&&r.choice!=="");
+            return pk?.pick_date===pickDate && pk?.choice && pk?.choice!=="";
+          });
+        };
+        const unpicked = players.filter(p=>p.lives>0&&!p.eliminated&&!hasAnyPickOnDate(p));
+        // Extra guard: if ALL active players appear unpicked on a past date,
+        // data hasn't loaded yet — don't fire Howard's Law
+        const active = players.filter(p=>p.lives>0&&!p.eliminated);
+        if(pickDate < today && unpicked.length === active.length && active.length > 1) continue;
         if(unpicked.length>0) applyHowardsLawSilent(pickDate);
       }
     };
@@ -2139,13 +2152,8 @@ export default function App() {
                           const isThisMatchPick = dayPick&&dayPick.matchId===String(m.id);
                           const u=usedPhase.includes(choice)&&!(isThisMatchPick&&dayPick.choice===choice);
                           const sel=isThisMatchPick&&dayPick.choice===choice;
-                          const dis=otherMatchPicked||u||locked;
-                          const handleClick=()=>{
-                            if(locked) return;
-                            if(sel) clearPick(p.id,pickDate,m.id);
-                            else if(!dis) makePick(p.id,pickDate,m.id,choice);
-                          };
-                          return <button key={choice} style={teamBtn(sel,dis&&!sel)} disabled={locked&&!sel} onClick={handleClick}>
+                          const dis=otherMatchPicked||u||locked||sel;
+                          return <button key={choice} style={teamBtn(sel,dis&&!sel)} disabled={dis} onClick={()=>{ if(!dis) makePick(p.id,pickDate,m.id,choice); }}>
                             <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
                           </button>;
                         })}
