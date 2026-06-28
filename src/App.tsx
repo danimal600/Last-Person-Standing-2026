@@ -1713,7 +1713,23 @@ export default function App() {
           {showScore&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{disp.homeScore}–{disp.awayScore}{isFinished&&disp.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}{isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>P</span>}</span>}
           {!showScore&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
           {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
-          {m.away?`${f(m.away)} ${m.away}`:"TBD"}
+          {(()=>{
+            const away = m.away||"";
+            // Resolve W(MXX) placeholder to actual team name if result known
+            if(away.startsWith("W(M")) {
+              const r32id = Number(away.match(/W\(M(\d+)\)/)?.[1]);
+              const fix = koFixtures[r32id];
+              if(fix?.home&&fix?.away) {
+                const slot32 = KNOCKOUT_SLOTS.find(s=>s.id===r32id);
+                const pd = slot32?.pickDate;
+                if(pd&&results[`${pd}|${fix.home}`]==="win") return `${f(fix.home)} ${fix.home}`;
+                if(pd&&results[`${pd}|${fix.away}`]==="win") return `${f(fix.away)} ${fix.away}`;
+                return `${f(fix.home)}${fix.home}/${fix.away}`;
+              }
+              return "TBD";
+            }
+            return away ? `${f(away)} ${away}` : "TBD";
+          })()}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
           <span style={{fontSize:11,color:isLive?T.red:T.muted}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinishedFallback?"":fmtBST(m.kickoffBST)+" BST"}</span>
@@ -2110,7 +2126,6 @@ export default function App() {
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
                   {sorted.map((m,i)=>{
-                    const myPick=p.picks[String(m.id)];
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
                     return (
                       <div key={i} style={{marginBottom:8,opacity:otherMatchPicked?0.4:1}}>
@@ -2121,15 +2136,16 @@ export default function App() {
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                         {[m.home,m.away].filter(Boolean).map(choice=>{
-                          const u=usedPhase.includes(choice)&&myPick!==choice;
-                          const sel=myPick===choice;
+                          const isThisMatchPick = dayPick&&dayPick.matchId===String(m.id);
+                          const u=usedPhase.includes(choice)&&!(isThisMatchPick&&dayPick.choice===choice);
+                          const sel=isThisMatchPick&&dayPick.choice===choice;
                           const dis=otherMatchPicked||u||locked;
                           const handleClick=()=>{
-                            if(dis&&!sel) return;
+                            if(locked) return;
                             if(sel) clearPick(p.id,pickDate,m.id);
-                            else makePick(p.id,pickDate,m.id,choice);
+                            else if(!dis) makePick(p.id,pickDate,m.id,choice);
                           };
-                          return <button key={choice} style={teamBtn(sel,dis&&!sel)} disabled={dis&&!sel} onClick={handleClick}>
+                          return <button key={choice} style={teamBtn(sel,dis&&!sel)} disabled={locked&&!sel} onClick={handleClick}>
                             <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
                           </button>;
                         })}
@@ -2193,15 +2209,18 @@ export default function App() {
                                               border:`1px solid ${isYours?"#1a4a5a":"#0d2a3a"}`}}>
                                   {teams.length>0?teams.map((team,ti)=>{
                                     const used=usedPhase.includes(team)&&team!==pickedTeam;
+                                    const isPicked=team===pickedTeam;
                                     return(
                                       <div key={team} style={{display:"flex",alignItems:"center",gap:3,marginBottom:ti===0?2:0}}>
-                                        <span style={{fontSize:15}}>{f(team)}</span>
+                                        <span style={{fontSize:15,opacity:isPicked?0.4:1}}>{f(team)}</span>
                                         <span style={{fontSize:11,fontWeight:600,flex:1,
-                                                       color:used?"#ff6b6b":isYours?"#4ab8c8":"#c0dde6",
-                                                       textDecoration:used?"line-through":"none"}}>
+                                                       color:used?"#ff6b6b":isPicked?"#5a8a96":isYours?"#4ab8c8":"#c0dde6",
+                                                       textDecoration:(used||isPicked)?"line-through":"none",
+                                                       opacity:isPicked?0.5:1}}>
                                           {team}
                                         </span>
-                                        {used&&<span style={{fontSize:9,color:"#ff6b6b"}}>✗</span>}
+                                        {isPicked&&<span style={{fontSize:9,color:"#5a8a96"}}>picked</span>}
+                                        {used&&!isPicked&&<span style={{fontSize:9,color:"#ff6b6b"}}>✗</span>}
                                       </div>
                                     );
                                   }):(
