@@ -175,11 +175,23 @@ const UK_CHANNEL = {
   66:"BBC",                   // New Zealand v Belgium (4am)
   67:"ITV",                   // Panama v England
   68:"ITV4",                  // Croatia v Ghana
-  // June 28 (inc early hours)
-  69:"BBC",                   // Colombia v Portugal (00:30)
-  70:"BBC2",                  // DR Congo v Uzbekistan (00:30)
-  71:"BBC2",                  // Algeria v Austria (3am)
-  72:"BBC",                   // Jordan v Argentina (3am)
+  // ── ROUND OF 32 ─────────────────────────────────────────────
+  73:"ITV",   // R32-1: South Africa v Canada (Sun 28 Jun, 8pm BST)
+  74:"ITV",   // R32-2: 1E v 3rd (Mon 29 Jun, 9:30pm BST)
+  75:"ITV",   // R32-3: Netherlands v Morocco (Tue 30 Jun, 2am BST)
+  76:"BBC",   // R32-4: Brazil v Japan (Mon 29 Jun, 6pm BST)
+  77:"BBC",   // R32-5: Ivory Coast v Norway (Tue 30 Jun, 6pm BST)
+  78:"ITV",   // R32-6: France v Sweden (Tue 30 Jun, 10pm BST)
+  79:"ITV",   // R32-7: 1A v 3rd (Tue 30 Jun, late)
+  80:"BBC",   // R32-8: 1L v 3rd (Wed 1 Jul, 5pm BST)
+  81:"BBC",   // R32-9: USA v Bosnia & Herz. (Thu 2 Jul, 1am BST)
+  82:"ITV",   // R32-10: Belgium v Senegal (Wed 1 Jul, 9pm BST)
+  83:"ITV",   // R32-11: Mexico v Ecuador (Wed 1 Jul, 2am BST)
+  84:"BBC",   // R32-12: England v DR Congo (Wed 1 Jul, 5pm BST)
+  85:"BBC",   // R32-13: Spain v Austria (Thu 2 Jul, 8pm BST)
+  86:"BBC",   // R32-14: 1J v 2H (Thu 2 Jul)
+  87:"ITV",   // R32-15: 1K v 3rd (Thu 2 Jul)
+  88:"ITV",   // R32-16: 2D v 2G (Thu 2 Jul)
 };
 
 const KNOCKOUT_SLOTS = [
@@ -1186,7 +1198,7 @@ export default function App() {
         const annexRow = ANNEX_C[qualGroups];
         if(annexRow) {
           THIRD_PLACE_SLOTS.forEach((slotId, i) => {
-            if(currentKoFixtures[slotId]) return;
+            if(currentKoFixtures[slotId]?.home && currentKoFixtures[slotId]?.away) return;
             const thirdCode = annexRow[i]; // e.g. "3E"
             const thirdGroup = thirdCode.slice(1);
             const thirdTeam = best8.find(t=>t.group===thirdGroup)?.team;
@@ -1528,7 +1540,23 @@ export default function App() {
     const lowestMatch = lowestEntry.match;
 
     const active = players.filter(p=>p.lives>0&&!p.eliminated);
-    const unpicked = active.filter(p=>!getDayPick(p,pickDate));
+
+    // CRITICAL: a player is "picked" if they have ANY pick row for this date,
+    // regardless of match_id. The original getDayPick checks by match_id which
+    // means if Howard's Law runs after a fixture is confirmed (different match_id
+    // than the one the player picked against), it sees them as unpicked and
+    // overwrites their real pick. Use raw picks data keyed by date only.
+    const hasAnyPickOnDate = (p) => {
+      if(getDayPick(p, pickDate)) return true;
+      // Also check all picks for this player on this date regardless of match
+      return Object.keys(p.picks||{}).some(matchId => {
+        const pk = p.picks[matchId];
+        if(Array.isArray(pk)) return pk.some(r=>r.pick_date===pickDate&&r.choice&&r.choice!=="");
+        return pk?.pick_date===pickDate && pk?.choice && pk?.choice!=="";
+      });
+    };
+
+    const unpicked = active.filter(p=>!hasAnyPickOnDate(p));
     if(!unpicked.length) return null;
 
     // Sanity check: for a date that's already in the past (not today), if
@@ -1542,11 +1570,29 @@ export default function App() {
       return null;
     }
 
-    const inserts = unpicked.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(lowestMatch.id),choice:lowest}));
+    // Double-check against Supabase directly — don't trust only in-memory state.
+    // If a player has ANY pick row in the DB for this date, skip them.
+    // This catches the case where the in-memory picks didn't load correctly.
+    const playerIds = unpicked.map(p=>p.id);
+    const {data:existingPicks} = await supabase
+      .from("picks")
+      .select("player_id,choice")
+      .in("player_id", playerIds)
+      .eq("pick_date", pickDate)
+      .neq("choice","");
+    const alreadyPickedInDB = new Set((existingPicks||[]).map(r=>r.player_id));
+    const safeToAssign = unpicked.filter(p=>!alreadyPickedInDB.has(p.id));
+
+    if(alreadyPickedInDB.size > 0) {
+      console.warn(`Howard's Law: ${alreadyPickedInDB.size} player(s) had picks in DB not in memory — skipping them to protect real picks.`);
+    }
+    if(!safeToAssign.length) return null;
+
+    const inserts = safeToAssign.map(p=>({player_id:p.id,pick_date:pickDate,match_id:String(lowestMatch.id),choice:lowest}));
     await supabase.from("picks").upsert(inserts,{onConflict:"player_id,pick_date,match_id"});
     await supabase.from("results").upsert([{pick_date:pickDate,team:"__howards_done__",outcome:"done"}],{onConflict:"pick_date,team"});
     loadAll();
-    return {pickDate, players:unpicked.map(p=>p.name), team:lowest};
+    return {pickDate, players:safeToAssign.map(p=>p.name), team:lowest};
   }
 
 
@@ -1910,7 +1956,13 @@ export default function App() {
               🚫 You cannot pick the same team twice across the entire R32 and R16 combined.
             </div>
             {koDatesUpcoming.map(pickDate=>{
-              const ms=getMatchesForPickDate(pickDate).filter(m=>m.isKnockout); if(!ms.length)return null;
+              const ms=getMatchesForPickDate(pickDate).filter(m=>m.isKnockout);
+              if(!ms.length)return null;
+              // Sort: evening/afternoon first, early-hours BST (midnight-6am) last
+              const sorted=[...ms].sort((a,b)=>{
+                const bstH=t=>{const h=parseInt((t?.kickoffBST||"12").split(":")[0]);return h<6?h+24:h;};
+                return bstH(a)-bstH(b);
+              });
               const locked=isLocked(pickDate);
               const dayPick=getDayPick(p,pickDate);
               const usedPhase=getPicksInPhase(p,pickDate);
@@ -1923,7 +1975,7 @@ export default function App() {
                       {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 8px"}} onClick={()=>clearPick(p.id,pickDate,dayPick.matchId)}>✕ Change</button>}
                     </div>
                   )}
-                  {ms.map((m,i)=>{
+                  {sorted.map((m,i)=>{
                     const myPick=p.picks[String(m.id)];
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
                     return (
