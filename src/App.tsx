@@ -1643,6 +1643,23 @@ export default function App() {
   const pill   = v=>{const m={amber:{bg:T.amberBg,b:T.amberBorder,c:T.amber},green:{bg:T.greenBg,b:T.greenBorder,c:T.green},red:{bg:T.redBg,b:T.redBorder,c:T.red},muted:{bg:"rgba(255,255,255,0.05)",b:T.border,c:T.muted},blue:{bg:T.blueBg,b:T.blueBorder,c:T.blue},night:{bg:"rgba(192,132,252,0.12)",b:"rgba(192,132,252,0.35)",c:T.night}};const x=m[v]||m.muted;return{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:99,fontSize:12,background:x.bg,border:`1px solid ${x.b}`,color:x.c};};
   const teamBtn=(sel,dis)=>({padding:"11px 8px",borderRadius:9,cursor:dis?"not-allowed":"pointer",border:`1px solid ${sel?T.amber:T.border}`,background:sel?T.amberBg:dis?"rgba(0,0,0,0.12)":T.cardBg,color:dis?"#2a4030":sel?T.amber:T.text,opacity:dis?0.4:1,fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"all 0.15s",flex:"1 1 0",minWidth:0});
 
+  // Resolves slot labels — replaces W(MXX) with confirmed winner name
+  // e.g. "M90: W(M73) vs W(M75)" → "M90: Canada vs W(M75)"
+  const resolvedSlotLabel = (slot) => {
+    const base = slotLabel(slot);
+    return base.replace(/W\(M(\d+)\)/g, (match, r32id) => {
+      const id = Number(r32id);
+      const fix = koFixtures[id];
+      if (!fix?.home || !fix?.away) return match;
+      const slot32 = KNOCKOUT_SLOTS.find(s=>s.id===id);
+      if (!slot32) return match;
+      const pd = slot32.pickDate;
+      if (results[`${pd}|${fix.home}`]==="win") return fix.home;
+      if (results[`${pd}|${fix.away}`]==="win") return fix.away;
+      return `${fix.home}/${fix.away}`;
+    });
+  };
+
   function MatchRow({m}) {
     const live = m.home && m.away ? liveScores[`${m.home}|${m.away}`] || liveScores[`${m.away}|${m.home}`] : null;
 
@@ -1816,24 +1833,6 @@ export default function App() {
     const [now, setNow] = useState(()=>new Date());
     const [plannerOpen, setPlannerOpen] = useState({});
     useEffect(()=>{ const i=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(i); },[]);
-
-    // Resolves R16/QF slot labels replacing W(MXX) with confirmed winner names
-    // Results are keyed as "pick_date|team" → outcome string ("win"/"loss" etc)
-    const resolvedSlotLabel = (slot) => {
-      const base = slotLabel(slot);
-      return base.replace(/W\(M(\d+)\)/g, (match, r32id) => {
-        const id = Number(r32id);
-        const fix = koFixtures[id];
-        if (!fix?.home || !fix?.away) return match;
-        const slot32 = KNOCKOUT_SLOTS.find(s=>s.id===id);
-        if (!slot32) return match;
-        const pd = slot32.pickDate;
-        if (results[`${pd}|${fix.home}`]==="win") return fix.home;
-        if (results[`${pd}|${fix.away}`]==="win") return fix.away;
-        // Both teams known but result not yet — show "Team A/Team B"
-        return `${fix.home}/${fix.away}`;
-      });
-    };
 
     // R32 match → R16 match it feeds
     const R32_TO_R16_MAP = {
@@ -2110,12 +2109,6 @@ export default function App() {
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
-                  {dayPick&&(
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                      <span style={{...pill("amber"),fontSize:12}}>{f(dayPick.choice)} {dayPick.choice} ✓</span>
-                      {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 8px"}} onClick={()=>clearPick(p.id,pickDate,dayPick.matchId)}>✕ Change</button>}
-                    </div>
-                  )}
                   {sorted.map((m,i)=>{
                     const myPick=p.picks[String(m.id)];
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
@@ -2131,7 +2124,12 @@ export default function App() {
                           const u=usedPhase.includes(choice)&&myPick!==choice;
                           const sel=myPick===choice;
                           const dis=otherMatchPicked||u||locked;
-                          return <button key={choice} style={teamBtn(sel,dis)} disabled={dis} onClick={()=>!dis&&makePick(p.id,pickDate,m.id,choice)}>
+                          const handleClick=()=>{
+                            if(dis&&!sel) return;
+                            if(sel) clearPick(p.id,pickDate,m.id);
+                            else makePick(p.id,pickDate,m.id,choice);
+                          };
+                          return <button key={choice} style={teamBtn(sel,dis&&!sel)} disabled={dis&&!sel} onClick={handleClick}>
                             <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
                           </button>;
                         })}
