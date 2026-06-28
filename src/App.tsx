@@ -1423,8 +1423,11 @@ export default function App() {
   const middasDates = computeExpectedLives(players, results).middasDates;
 
   // Make a pick for a specific match
+  const pickInFlight = useRef(false);
+
   async function makePick(pid, pickDate, matchId, choice) {
     if(isLocked(pickDate)){toast_("error","🔒 Deadline passed!"); return;}
+    if(pickInFlight.current) return; // prevent rapid double-tap
     const player = players.find(p=>p.id===pid);
     if(!player) return;
 
@@ -1436,13 +1439,11 @@ export default function App() {
     }
 
     // Optimistic update
+    pickInFlight.current = true;
     setPlayers(prev=>prev.map(p=>p.id!==pid?p:{...p,picks:{...p.picks,[String(matchId)]:choice}}));
     toast_("success",`${f(choice)} ${choice==="Draw"?"Draw":choice} locked in!`);
 
     // Delete any OTHER pick rows for this player on this pick_date (different match_id)
-    // — prevents stale duplicate rows building up when a player changes their mind
-    // and picks a different match on the same day. Safe to run unconditionally since
-    // the new pick hasn't been written yet, so we're just clearing out the old one.
     await supabase.from("picks")
       .delete()
       .eq("player_id", pid)
@@ -1453,6 +1454,7 @@ export default function App() {
       { player_id: pid, pick_date: pickDate, match_id: String(matchId), choice },
       { onConflict: "player_id,pick_date,match_id" }
     );
+    pickInFlight.current = false;
     if(error){ toast_("error","Save failed — try again."); loadAll(); }
   }
 
@@ -2150,11 +2152,28 @@ export default function App() {
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                         {[m.home,m.away].filter(Boolean).map(choice=>{
                           const isThisMatchPick = dayPick&&dayPick.matchId===String(m.id);
-                          const u=usedPhase.includes(choice)&&!(isThisMatchPick&&dayPick.choice===choice);
-                          const sel=isThisMatchPick&&dayPick.choice===choice;
-                          const dis=otherMatchPicked||u||locked||sel;
-                          return <button key={choice} style={teamBtn(sel,dis&&!sel)} disabled={dis} onClick={()=>{ if(!dis) makePick(p.id,pickDate,m.id,choice); }}>
-                            <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
+                          const u = usedPhase.includes(choice)&&!(isThisMatchPick&&dayPick.choice===choice);
+                          const sel = isThisMatchPick&&dayPick.choice===choice;
+                          // Only truly disable: locked after deadline, or team used elsewhere this phase
+                          const dis = locked||u;
+                          const handleClick=()=>{
+                            if(dis) return;
+                            if(sel) {
+                              // Tap own pick to deselect — only if not locked
+                              if(!locked) clearPick(p.id,pickDate,m.id);
+                            } else {
+                              // Tap any other available team — switches pick directly
+                              // makePick internally deletes old pick row for this date
+                              makePick(p.id,pickDate,m.id,choice);
+                            }
+                          };
+                          return <button key={choice}
+                            style={teamBtn(sel,dis)}
+                            disabled={dis}
+                            onClick={handleClick}>
+                            <span style={{fontSize:18}}>{f(choice)}</span>
+                            <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>
+                            {sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
                           </button>;
                         })}
                         </div>
