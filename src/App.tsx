@@ -2139,6 +2139,103 @@ export default function App() {
                       </div>
                     );
                   })}
+
+                  {/* ── Pick Planner — once per pick day, below all matches ── */}
+                  {(()=>{
+                    if(!dayPick) return null;
+                    const pickedTeam  = dayPick.choice;
+                    const pickedMid   = Number(dayPick.matchId);
+                    const myR16Id     = R32_TO_R16_MAP[pickedMid];
+                    if(!myR16Id) return null;
+                    const myR16Slot   = KNOCKOUT_SLOTS.find(s=>s.id===myR16Id);
+                    if(!myR16Slot) return null;
+                    const r16PickDate = myR16Slot.pickDate;
+                    const r16DaySlots = KNOCKOUT_SLOTS
+                      .filter(s=>s.pickDate===r16PickDate&&s.id>=89&&s.id<=96)
+                      .sort((a,b)=>{
+                        const h=t=>{const hr=parseInt((t?.kickoffBST||"12").split(":")[0]);return hr<6?hr+24:hr;};
+                        return h(a)-h(b);
+                      });
+                    const resolveTeams=(r32id)=>{
+                      const fix=koFixtures[r32id];
+                      return fix?.home&&fix?.away?[fix.home,fix.away]:[];
+                    };
+                    const isOpen=plannerOpen[pickDate]||false;
+                    return(
+                      <div style={{marginTop:10}}>
+                        <button
+                          onClick={()=>setPlannerOpen(prev=>({...prev,[pickDate]:!prev[pickDate]}))}
+                          style={{width:"100%",background:isOpen?"rgba(74,184,200,0.1)":"transparent",
+                                   cursor:"pointer",border:"1px solid #1a4a5a",
+                                   borderRadius:isOpen?"8px 8px 0 0":8,
+                                   padding:"8px 12px",fontSize:12,color:"#4ab8c8",
+                                   display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span>🔵 Pick Planner</span>
+                          <span style={{fontSize:11,color:"#5a8a96"}}>{isOpen?"▲":"▼"}</span>
+                        </button>
+                        {isOpen&&(
+                          <div style={{background:"#020d18",border:"1px solid #1a4a5a",
+                                        borderTop:"none",borderRadius:"0 0 8px 8px",overflow:"hidden"}}>
+                            <div style={{padding:"8px 12px",borderBottom:"1px solid #0d2a3a"}}>
+                              <div style={{fontSize:11,color:"#5a8a96",fontStyle:"italic"}}>
+                                If {f(pickedTeam)} {pickedTeam} wins, you cannot pick them on their R16 day ({fmtDate(r16PickDate)})
+                              </div>
+                            </div>
+                            {r16DaySlots.map((slot,si)=>{
+                              const isThisOne=slot.id===myR16Id;
+                              const feeders=Object.entries(R32_TO_R16_MAP)
+                                .filter(([,r16])=>Number(r16)===slot.id)
+                                .map(([id])=>Number(id));
+                              const [feedA,feedB]=feeders;
+                              const teamsA=resolveTeams(feedA);
+                              const teamsB=resolveTeams(feedB);
+                              const TeamBox=({teams,isYours})=>(
+                                <div style={{flex:1,padding:"6px 8px",borderRadius:6,
+                                              background:isYours?"rgba(74,184,200,0.1)":"rgba(255,255,255,0.03)",
+                                              border:`1px solid ${isYours?"#1a4a5a":"#0d2a3a"}`}}>
+                                  {teams.length>0?teams.map((team,ti)=>{
+                                    const used=usedPhase.includes(team)&&team!==pickedTeam;
+                                    return(
+                                      <div key={team} style={{display:"flex",alignItems:"center",gap:3,marginBottom:ti===0?2:0}}>
+                                        <span style={{fontSize:15}}>{f(team)}</span>
+                                        <span style={{fontSize:11,fontWeight:600,flex:1,
+                                                       color:used?"#ff6b6b":isYours?"#4ab8c8":"#c0dde6",
+                                                       textDecoration:used?"line-through":"none"}}>
+                                          {team}
+                                        </span>
+                                        {used&&<span style={{fontSize:9,color:"#ff6b6b"}}>✗</span>}
+                                      </div>
+                                    );
+                                  }):(
+                                    <span style={{fontSize:11,color:"#5a8a96",fontStyle:"italic"}}>TBC</span>
+                                  )}
+                                </div>
+                              );
+                              return(
+                                <div key={slot.id}
+                                  style={{padding:"8px 12px",
+                                           background:isThisOne?"rgba(74,184,200,0.04)":"transparent",
+                                           borderBottom:si<r16DaySlots.length-1?"1px solid #0d2a3a":"none",
+                                           display:"flex",alignItems:"center",gap:8}}>
+                                  <div style={{width:30,flexShrink:0,textAlign:"center"}}>
+                                    <div style={{fontSize:10,fontWeight:700,color:isThisOne?"#4ab8c8":"#5a8a96"}}>
+                                      M{slot.id}
+                                    </div>
+                                    {isThisOne&&<div style={{width:5,height:5,borderRadius:"50%",background:"#4ab8c8",margin:"2px auto 0"}}/>}
+                                  </div>
+                                  <TeamBox teams={teamsA} isYours={isThisOne}/>
+                                  <div style={{fontSize:11,color:"#5a8a96",fontWeight:700,flexShrink:0}}>vs</div>
+                                  <TeamBox teams={teamsB} isYours={false}/>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {locked&&!dayPick&&<div style={{fontSize:12,color:T.red}}>⚠️ No pick made — Howard's Law will apply.</div>}
                 </div>
               );
             })}
