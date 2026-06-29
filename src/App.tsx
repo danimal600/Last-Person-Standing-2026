@@ -487,6 +487,8 @@ export default function App() {
         picksByPlayer[pk.player_id][key] = pk.choice;
       });
       const assembled = (pData||[]).map(p => ({ ...p, picks: picksByPlayer[p.id]||{} }));
+      // DEBUG — remove after diagnosing pick display issue
+      console.log("[DEBUG picks] keys per player:", assembled.map(p=>({name:p.name,pickKeys:Object.keys(p.picks||{}),pickVals:Object.values(p.picks||{})})));
       setPlayers(assembled);
 
       const resObj = {};
@@ -1416,7 +1418,14 @@ export default function App() {
     const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate).map(s=>({...s,...(koFixtures[s.id]||{}),isKnockout:true}));
     return [...gm,...km];
   }
-  const activeDates = allPickDates.filter(d => groupPickDates.includes(d) || KNOCKOUT_SLOTS.filter(s=>s.pickDate===d).some(s=>koFixtures[s.id]));
+  const activeDates = allPickDates.filter(d => {
+    if(groupPickDates.includes(d)) return true;
+    // Include KO date if fixture confirmed OR any player has a pick for it
+    if(KNOCKOUT_SLOTS.filter(s=>s.pickDate===d).some(s=>koFixtures[s.id])) return true;
+    // Also include if any player already has a pick on this KO date (pick exists even if fixture not yet in koFixtures)
+    if(players.some(p=>KNOCKOUT_SLOTS.filter(s=>s.pickDate===d).some(s=>p.picks[String(s.id)]))) return true;
+    return false;
+  });
   // Dates on which Midda's Law applied (everyone wrong, nobody loses a life) —
   // used to colour those picks differently on the Grid (gold) rather than
   // showing them as a plain "wrong" (red), since no life was actually lost.
