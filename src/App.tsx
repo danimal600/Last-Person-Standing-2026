@@ -477,6 +477,7 @@ export default function App() {
     try {
       const { data: pData } = await supabase.from("players").select("*").order("lives",{ascending:false});
       const { data: pickData } = await supabase.from("picks").select("*").range(0, 9999);
+      console.log("[LOAD] rows fetched:", pickData?.length, "has74:", !!pickData?.find(pk=>String(pk.match_id)==="74"&&String(pk.player_id)==="1"));
       const { data: resData } = await supabase.from("results").select("*");
       const { data: koData } = await supabase.from("ko_fixtures").select("*");
 
