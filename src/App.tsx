@@ -476,13 +476,7 @@ export default function App() {
     if(isInitial) setLoading(true);
     try {
       const { data: pData } = await supabase.from("players").select("*").order("lives",{ascending:false});
-      // Fetch all picks in batches to get past Supabase's 1000 row default limit
-      const [pickResp1, pickResp2] = await Promise.all([
-        supabase.from("picks").select("*").range(0, 999),
-        supabase.from("picks").select("*").range(1000, 1999),
-      ]);
-      const pickData = [...(pickResp1.data||[]), ...(pickResp2.data||[])];
-      console.log("[LOAD] rows fetched:", pickData?.length, "has74:", !!pickData?.find(pk=>String(pk.match_id)==="74"&&String(pk.player_id)==="1"));
+      const { data: pickData } = await supabase.from("picks").select("*");
       const { data: resData } = await supabase.from("results").select("*");
       const { data: koData } = await supabase.from("ko_fixtures").select("*");
 
