@@ -483,8 +483,19 @@ export default function App() {
       const picksByPlayer = {};
       (pickData||[]).forEach(pk => {
         if (!picksByPlayer[pk.player_id]) picksByPlayer[pk.player_id] = {};
-        const key = pk.match_id || pk.pick_date;
-        picksByPlayer[pk.player_id][key] = pk.choice;
+        if (pk.match_id) {
+          picksByPlayer[pk.player_id][String(pk.match_id)] = pk.choice;
+        } else {
+          // match_id is null — find the right knockout slot by matching the team
+          // against koFixtures so we store under the correct slot id
+          const slotsOnDate = KNOCKOUT_SLOTS.filter(s => s.pickDate === pk.pick_date);
+          const matchingSlot = slotsOnDate.find(s => {
+            const fix = (koData||[]).find(k => k.slot_id === s.id);
+            return fix && (fix.home === pk.choice || fix.away === pk.choice);
+          });
+          const key = matchingSlot ? String(matchingSlot.id) : pk.pick_date;
+          picksByPlayer[pk.player_id][key] = pk.choice;
+        }
       });
       const assembled = (pData||[]).map(p => ({ ...p, picks: picksByPlayer[p.id]||{} }));
       setPlayers(assembled);
@@ -1450,12 +1461,19 @@ export default function App() {
     setPlayers(prev=>prev.map(p=>p.id!==pid?p:{...p,picks:{...p.picks,[String(matchId)]:choice}}));
     toast_("success",`${f(choice)} ${choice==="Draw"?"Draw":choice} locked in!`);
 
-    // Delete any OTHER pick rows for this player on this pick_date (different match_id)
+    // Delete any OTHER pick rows for this player on this pick_date
+    // Use OR to catch both different match_id AND null match_id rows
     await supabase.from("picks")
       .delete()
       .eq("player_id", pid)
       .eq("pick_date", pickDate)
       .neq("match_id", String(matchId));
+    // Also delete any rows with null match_id for this date (legacy rows)
+    await supabase.from("picks")
+      .delete()
+      .eq("player_id", pid)
+      .eq("pick_date", pickDate)
+      .is("match_id", null);
 
     const { error } = await supabase.from("picks").upsert(
       { player_id: pid, pick_date: pickDate, match_id: String(matchId), choice },
@@ -2144,8 +2162,6 @@ export default function App() {
               const locked=isLocked(pickDate);
               const dayPick=getDayPick(p,pickDate);
               const usedPhase=getPicksInPhase(p,pickDate);
-              // DEBUG
-              if(pickDate>="2026-07-03") console.log(`[DEBUG ${pickDate}] slots:`,ms.map(m=>m.id), `picks["88"]:`,p.picks["88"], `dayPick:`,dayPick);
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
