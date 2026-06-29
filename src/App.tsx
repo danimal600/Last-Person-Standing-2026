@@ -487,8 +487,6 @@ export default function App() {
         picksByPlayer[pk.player_id][key] = pk.choice;
       });
       const assembled = (pData||[]).map(p => ({ ...p, picks: picksByPlayer[p.id]||{} }));
-      // DEBUG — remove after diagnosing pick display issue
-      console.log("[DEBUG picks] keys per player:", assembled.map(p=>({name:p.name,pickKeys:Object.keys(p.picks||{}),pickVals:Object.values(p.picks||{})})));
       setPlayers(assembled);
 
       const resObj = {};
@@ -2149,6 +2147,12 @@ export default function App() {
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
+                  {dayPick&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <span style={{...pill("amber"),fontSize:12}}>{f(dayPick.choice)} {dayPick.choice} ✓</span>
+                      {!locked&&<button style={{...btn(),fontSize:11,padding:"4px 10px",background:"rgba(255,255,255,0.06)",border:`1px solid ${T.border}`,color:T.muted}} onClick={()=>clearPick(p.id,pickDate,dayPick.matchId)}>change</button>}
+                    </div>
+                  )}
                   {sorted.map((m,i)=>{
                     const otherMatchPicked=dayPick&&dayPick.matchId!==String(m.id);
                     return (
@@ -2160,29 +2164,11 @@ export default function App() {
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                         {[m.home,m.away].filter(Boolean).map(choice=>{
-                          const isThisMatchPick = dayPick&&dayPick.matchId===String(m.id);
-                          const u = usedPhase.includes(choice)&&!(isThisMatchPick&&dayPick.choice===choice);
-                          const sel = isThisMatchPick&&dayPick.choice===choice;
-                          // Only truly disable: locked after deadline, or team used elsewhere this phase
-                          const dis = locked||u;
-                          const handleClick=()=>{
-                            if(dis) return;
-                            if(sel) {
-                              // Tap own pick to deselect — only if not locked
-                              if(!locked) clearPick(p.id,pickDate,m.id);
-                            } else {
-                              // Tap any other available team — switches pick directly
-                              // makePick internally deletes old pick row for this date
-                              makePick(p.id,pickDate,m.id,choice);
-                            }
-                          };
-                          return <button key={choice}
-                            style={teamBtn(sel,dis)}
-                            disabled={dis}
-                            onClick={handleClick}>
-                            <span style={{fontSize:18}}>{f(choice)}</span>
-                            <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>
-                            {sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
+                          const u=usedPhase.includes(choice);
+                          const sel=dayPick?.matchId===String(m.id)&&dayPick?.choice===choice;
+                          const dis=otherMatchPicked||u||locked;
+                          return <button key={choice} style={teamBtn(sel,dis)} disabled={dis} onClick={()=>!dis&&makePick(p.id,pickDate,m.id,choice)}>
+                            <span style={{fontSize:18}}>{f(choice)}</span><span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{choice}</span>{sel&&<span style={{color:T.amber,flexShrink:0}}>✓</span>}
                           </button>;
                         })}
                         </div>
