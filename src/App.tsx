@@ -2144,6 +2144,8 @@ export default function App() {
               const locked=isLocked(pickDate);
               const dayPick=getDayPick(p,pickDate);
               const usedPhase=getPicksInPhase(p,pickDate);
+              // DEBUG
+              if(pickDate>="2026-07-03") console.log(`[DEBUG ${pickDate}] slots:`,ms.map(m=>m.id), `picks["88"]:`,p.picks["88"], `dayPick:`,dayPick);
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
