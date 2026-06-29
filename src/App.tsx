@@ -2162,6 +2162,15 @@ export default function App() {
               const locked=isLocked(pickDate);
               const dayPick=getDayPick(p,pickDate);
               const usedPhase=getPicksInPhase(p,pickDate);
+              if(pickDate==="2026-07-03"&&p.id===activeId){
+                console.log("=== PICK DEBUG ===");
+                console.log("slots:", ms.map(m=>m.id));
+                console.log("picks[88]:", p.picks["88"]);
+                console.log("picks[87]:", p.picks["87"]);
+                console.log("picks[86]:", p.picks["86"]);
+                console.log("ALL keys:", JSON.stringify(Object.keys(p.picks)));
+                console.log("dayPick:", JSON.stringify(dayPick));
+              }
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
