@@ -465,6 +465,7 @@ export default function App() {
   const [adminEditPicks, setAdminEditPicks] = useState({});
   const [adminSelectedPlayer, setAdminSelectedPlayer] = useState(null);
   const [adminConfirmDelete, setAdminConfirmDelete] = useState(false);
+  const [pickPlannerEnabled, setPickPlannerEnabled] = useState(true);
 
 
   const activePlayer = players.find(p=>p.id==activeId)||null;
@@ -501,6 +502,8 @@ export default function App() {
       const resObj = {};
       (resData||[]).forEach(r => { resObj[`${r.pick_date}|${r.team}`] = r.outcome; });
       setResults(resObj);
+      // Load pick planner enabled setting
+      setPickPlannerEnabled(resObj["__settings__|pick_planner"] !== "disabled");
 
       const koObj = {};
       (koData||[]).forEach(k => { koObj[k.slot_id] = { home: k.home, away: k.away }; });
@@ -2028,118 +2031,6 @@ export default function App() {
                     );
                   })}
 
-                  {/* ── Pick Planner — once per pick day, below all matches ── */}
-                  {(()=>{
-                    if(!dayPick) return null;
-                    const pickedTeam  = dayPick.choice;
-                    const pickedMid   = Number(dayPick.matchId);
-                    const myR16Id     = R32_TO_R16_MAP[pickedMid];
-                    if(!myR16Id) return null;
-                    const myR16Slot   = KNOCKOUT_SLOTS.find(s=>s.id===myR16Id);
-                    if(!myR16Slot) return null;
-                    const r16PickDate = myR16Slot.pickDate;
-
-                    // Both R16 matches on that pick day, sorted by BST kickoff
-                    const r16DaySlots = KNOCKOUT_SLOTS
-                      .filter(s=>s.pickDate===r16PickDate&&s.id>=89&&s.id<=96)
-                      .sort((a,b)=>{
-                        const h=t=>{const hr=parseInt((t?.kickoffBST||"12").split(":")[0]);return hr<6?hr+24:hr;};
-                        return h(a)-h(b);
-                      });
-
-                    // For each R16 slot, resolve team names from the two R32 feeders
-                    const resolveTeams=(r32id)=>{
-                      const fix=koFixtures[r32id];
-                      return fix?.home&&fix?.away?[fix.home,fix.away]:[];
-                    };
-
-                    const isOpen = plannerOpen[pickDate]||false;
-
-                    return(
-                      <div style={{marginTop:10}}>
-                        <button
-                          onClick={()=>setPlannerOpen(prev=>({...prev,[pickDate]:!prev[pickDate]}))}
-                          style={{width:"100%",background:isOpen?"rgba(74,184,200,0.1)":"transparent",
-                                   cursor:"pointer",border:"1px solid #1a4a5a",
-                                   borderRadius:isOpen?"8px 8px 0 0":8,
-                                   padding:"8px 12px",fontSize:12,color:"#4ab8c8",
-                                   display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <span>🔵 Pick Planner</span>
-                          <span style={{fontSize:11,color:"#5a8a96"}}>{isOpen?"▲":"▼"}</span>
-                        </button>
-
-                        {isOpen&&(
-                          <div style={{background:"#020d18",border:"1px solid #1a4a5a",
-                                        borderTop:"none",borderRadius:"0 0 8px 8px",overflow:"hidden"}}>
-                            {/* Context line */}
-                            <div style={{padding:"8px 12px",borderBottom:"1px solid #0d2a3a"}}>
-                              <div style={{fontSize:11,color:"#5a8a96",fontStyle:"italic"}}>
-                                If {f(pickedTeam)} {pickedTeam} wins, you cannot pick them on their R16 day ({fmtDate(r16PickDate)})
-                              </div>
-                            </div>
-                            {/* R16 match rows */}
-                            {r16DaySlots.map((slot,si)=>{
-                              const isThisOne = slot.id===myR16Id;
-                              const feeders   = Object.entries(R32_TO_R16_MAP)
-                                .filter(([,r16])=>Number(r16)===slot.id)
-                                .map(([id])=>Number(id));
-                              const [feedA,feedB] = feeders;
-                              const teamsA = resolveTeams(feedA);
-                              const teamsB = resolveTeams(feedB);
-
-                              const TeamBox=({teams,r32id,isYours})=>(
-                                <div style={{flex:1,padding:"6px 8px",borderRadius:6,
-                                              background:isYours?"rgba(74,184,200,0.1)":"rgba(255,255,255,0.03)",
-                                              border:`1px solid ${isYours?"#1a4a5a":"#0d2a3a"}`}}>
-                                  {teams.length>0?teams.map((team,ti)=>{
-                                    const used=usedPhase.includes(team)&&team!==pickedTeam;
-                                    return(
-                                      <div key={team} style={{display:"flex",alignItems:"center",
-                                                               gap:3,marginBottom:ti===0?2:0}}>
-                                        <span style={{fontSize:15}}>{f(team)}</span>
-                                        <span style={{fontSize:11,fontWeight:600,flex:1,
-                                                       color:used?"#ff6b6b":isYours?"#4ab8c8":"#c0dde6",
-                                                       textDecoration:used?"line-through":"none"}}>
-                                          {team}
-                                        </span>
-                                        {used&&<span style={{fontSize:9,color:"#ff6b6b"}}>✗</span>}
-                                      </div>
-                                    );
-                                  }):(
-                                    <span style={{fontSize:11,color:"#5a8a96",fontStyle:"italic"}}>TBC</span>
-                                  )}
-                                </div>
-                              );
-
-                              return(
-                                <div key={slot.id}
-                                  style={{padding:"8px 12px",
-                                           background:isThisOne?"rgba(74,184,200,0.04)":"transparent",
-                                           borderBottom:si<r16DaySlots.length-1?"1px solid #0d2a3a":"none",
-                                           display:"flex",alignItems:"center",gap:8}}>
-                                  {/* Match number left */}
-                                  <div style={{width:30,flexShrink:0,textAlign:"center"}}>
-                                    <div style={{fontSize:10,fontWeight:700,
-                                                  color:isThisOne?"#4ab8c8":"#5a8a96"}}>
-                                      M{slot.id}
-                                    </div>
-                                    {isThisOne&&(
-                                      <div style={{width:5,height:5,borderRadius:"50%",
-                                                    background:"#4ab8c8",margin:"2px auto 0"}}/>
-                                    )}
-                                  </div>
-                                  {/* Box vs Box */}
-                                  <TeamBox teams={teamsA} r32id={feedA} isYours={isThisOne}/>
-                                  <div style={{fontSize:11,color:"#5a8a96",fontWeight:700,flexShrink:0}}>vs</div>
-                                  <TeamBox teams={teamsB} r32id={feedB} isYours={false}/>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
 
                   {locked&&!dayPick&&<div style={{fontSize:12,color:T.red}}>⚠️ No pick made — Howard's Law will apply.</div>}
                 </div>
@@ -2198,7 +2089,7 @@ export default function App() {
                   })}
 
                   {/* ── Pick Planner — once per pick day, below all matches ── */}
-                  {(()=>{
+                  {pickPlannerEnabled&&(()=>{
                     if(!dayPick) return null;
                     const pickedTeam  = dayPick.choice;
                     const pickedMid   = Number(dayPick.matchId);
@@ -2764,7 +2655,7 @@ export default function App() {
       </div>
     );
 
-    const tabs=[["results","🏁 Results"],["players","👤 Players"],["fixtures","🔧 Fixtures"],["audit","🧮 Audit Lives"]];
+    const tabs=[["results","🏁 Results"],["players","👤 Players"],["fixtures","🔧 Fixtures"],["audit","🧮 Audit Lives"],["settings","⚙️ Settings"]];
     const pastDates=activeDates.filter(d=>isLocked(d));
     const selP = selectedPlayer ? players.find(p=>p.id===selectedPlayer) : null;
 
@@ -3069,6 +2960,35 @@ export default function App() {
           </div>
           );
         })()}
+
+        {tab==="settings"&&(
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:T.amber,marginBottom:16}}>⚙️ Game Settings</div>
+            <div style={{...card,padding:16,marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:3}}>🔵 Pick Planner</div>
+                  <div style={{fontSize:11,color:T.muted}}>
+                    {pickPlannerEnabled?"Visible to all players in My Picks":"Hidden from all players"}
+                  </div>
+                </div>
+                <button
+                  onClick={async()=>{
+                    const newVal=!pickPlannerEnabled;
+                    setPickPlannerEnabled(newVal);
+                    await supabase.from("results").upsert(
+                      [{pick_date:"__settings__",team:"pick_planner",outcome:newVal?"enabled":"disabled"}],
+                      {onConflict:"pick_date,team"}
+                    );
+                    toast_("success",newVal?"Pick Planner enabled":"Pick Planner hidden");
+                  }}
+                  style={{...btn(pickPlannerEnabled?"amber":"muted"),minWidth:80,flexShrink:0}}>
+                  {pickPlannerEnabled?"Hide it":"Show it"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
