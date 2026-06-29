@@ -487,7 +487,6 @@ export default function App() {
           picksByPlayer[pk.player_id][String(pk.match_id)] = pk.choice;
         } else {
           // match_id is null — find the right knockout slot by matching the team
-          // against koFixtures so we store under the correct slot id
           const slotsOnDate = KNOCKOUT_SLOTS.filter(s => s.pickDate === pk.pick_date);
           const matchingSlot = slotsOnDate.find(s => {
             const fix = (koData||[]).find(k => k.slot_id === s.id);
@@ -1449,9 +1448,14 @@ export default function App() {
     const player = players.find(p=>p.id===pid);
     if(!player) return;
 
-    // Check phase repeat restriction
-    const used = getPicksInPhase(player, pickDate);
-    if(choice!=="Draw" && used.includes(choice) && player.picks[String(matchId)]!==choice){
+    // Check phase repeat restriction — exclude current pickDate so player can change today's pick
+    const used = getPicksInPhase(player, pickDate).filter(c => {
+      // Find which date this choice came from — if it's today's date, exclude it
+      const ph = phaseOf(pickDate);
+      const datesInPhase = allPickDates.filter(d=>phaseOf(d)===ph&&d!==pickDate);
+      return datesInPhase.some(d=>getDayPick(player,d)?.choice===c);
+    });
+    if(choice!=="Draw" && used.includes(choice)){
       toast_("error",`${f(choice)} ${choice} already used this phase!`);
       return;
     }
@@ -2162,15 +2166,6 @@ export default function App() {
               const locked=isLocked(pickDate);
               const dayPick=getDayPick(p,pickDate);
               const usedPhase=getPicksInPhase(p,pickDate);
-              if(pickDate==="2026-07-03"&&p.id===activeId){
-                console.log("=== PICK DEBUG ===");
-                console.log("slots:", ms.map(m=>m.id));
-                console.log("picks[88]:", p.picks["88"]);
-                console.log("picks[87]:", p.picks["87"]);
-                console.log("picks[86]:", p.picks["86"]);
-                console.log("ALL keys:", JSON.stringify(Object.keys(p.picks)));
-                console.log("dayPick:", JSON.stringify(dayPick));
-              }
               return (
                 <div key={pickDate} style={{marginBottom:16,paddingBottom:16,borderBottom:`1px solid ${T.border}`}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>{fmtDate(pickDate)}</div>
