@@ -497,6 +497,7 @@ export default function App() {
         }
       });
       const assembled = (pData||[]).map(p => ({ ...p, picks: picksByPlayer[p.id]||{} }));
+      console.log("[LOAD] player 1 picks:", JSON.stringify(picksByPlayer[1]||picksByPlayer["1"]||"NOT FOUND"));
       setPlayers(assembled);
 
       const resObj = {};
