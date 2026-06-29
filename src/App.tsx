@@ -477,6 +477,7 @@ export default function App() {
     try {
       const { data: pData } = await supabase.from("players").select("*").order("lives",{ascending:false});
       const { data: pickData } = await supabase.from("picks").select("*");
+      console.log("[LOAD] total picks fetched:", pickData?.length, "player1 rows:", pickData?.filter(pk=>String(pk.player_id)==="1").length, "match74:", JSON.stringify(pickData?.find(pk=>String(pk.player_id)==="1"&&String(pk.match_id)==="74")));
       const { data: resData } = await supabase.from("results").select("*");
       const { data: koData } = await supabase.from("ko_fixtures").select("*");
 
@@ -484,6 +485,7 @@ export default function App() {
       (pickData||[]).forEach(pk => {
         if (!picksByPlayer[pk.player_id]) picksByPlayer[pk.player_id] = {};
         if (pk.match_id) {
+          if(String(pk.player_id)==="1") console.log(`[ROW] match_id:${pk.match_id} typeof:${typeof pk.match_id} key:${String(pk.match_id)} choice:${pk.choice}`);
           picksByPlayer[pk.player_id][String(pk.match_id)] = pk.choice;
         } else {
           // match_id is null — find the right knockout slot by matching the team
@@ -493,6 +495,7 @@ export default function App() {
             return fix && (fix.home === pk.choice || fix.away === pk.choice);
           });
           const key = matchingSlot ? String(matchingSlot.id) : pk.pick_date;
+          if(String(pk.player_id)==="1") console.log(`[ROW null] key:${key} choice:${pk.choice}`);
           picksByPlayer[pk.player_id][key] = pk.choice;
         }
       });
