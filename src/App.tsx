@@ -900,7 +900,18 @@ export default function App() {
               });
           if(!ourMatch) continue; // can't resolve to one of our scheduled matches yet
           const dur = match.score?.duration; // REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT
-          const scoreVal = `${score.home}-${score.away}` + (dur && dur!=="REGULAR" ? `:${dur}` : "");
+          // For penalty-shootout matches, store the pre-shootout (extra time) score
+          // rather than fullTime, which can sometimes reflect the shootout result.
+          const displayScore = dur === "PENALTY_SHOOTOUT" && match.score?.extraTime
+            ? match.score.extraTime
+            : score;
+          // Encode which side won the shootout (HOME_TEAM/AWAY_TEAM) so the P
+          // badge can be placed next to the correct team rather than floating
+          // generically after the score.
+          const winSide = dur === "PENALTY_SHOOTOUT" ? match.score?.winner : null;
+          const scoreVal = `${displayScore.home}-${displayScore.away}`
+            + (dur && dur!=="REGULAR" ? `:${dur}` : "")
+            + (winSide ? `:${winSide}` : "");
           const scoreKey = `__score__${ourMatch.id}`;
           if(updatedResults[`${ourMatch.pickDate}|${scoreKey}`] === scoreVal) continue; // already up to date
           await supabase.from("results").upsert([{pick_date:ourMatch.pickDate,team:scoreKey,outcome:scoreVal}],{onConflict:"pick_date,team"});
@@ -1236,9 +1247,11 @@ export default function App() {
       }
 
       // Now handle R16/QF/SF/Final from knockout results
-      // Get finished knockout matches from API
+      // Get finished knockout matches from API — MUST include ROUND_OF_32 so that
+      // R32 results can propagate winners into the R16 fixtures. Without this,
+      // R16 slots never auto-populate even after R32 matches finish.
       const koRes = await fetch(
-        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstage%3DLAST_16%2CQUARTER_FINALS%2CSEMI_FINALS%2CFINAL%26status%3DFINISHED"
+        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstage%3DROUND_OF_32%2CLAST_16%2CQUARTER_FINALS%2CSEMI_FINALS%2CFINAL%26status%3DFINISHED"
       );
       if(koRes.ok) {
         const koData = await koRes.json();
@@ -1371,15 +1384,24 @@ export default function App() {
         const away = TEAM_NAME_MAP[m.awayTeam?.name] || m.awayTeam?.name;
         if(!home || !away) return;
         const key = `${home}|${away}`;
+        const dur = m.score?.duration || "REGULAR";
+        // For matches decided on penalties, football-data.org's "fullTime" score
+        // can sometimes reflect the shootout result rather than the 120-minute
+        // score. The correct pre-shootout score (after extra time, still level)
+        // is under extraTime. Prefer that when duration is PENALTY_SHOOTOUT.
+        const preShootoutScore = dur === "PENALTY_SHOOTOUT" ? m.score?.extraTime : null;
         scores[key] = {
           home, away,
-          homeScore: m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
-          awayScore: m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
+          homeScore: preShootoutScore?.home ?? m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
+          awayScore: preShootoutScore?.away ?? m.score?.fullTime?.away ?? m.score?.halfTime?.away ?? 0,
           minute: m.minute || null,
           status,
           // "REGULAR" | "EXTRA_TIME" | "PENALTY_SHOOTOUT" — used to show an ET/P
           // indicator on finished knockout matches decided beyond 90 minutes.
-          duration: m.score?.duration || "REGULAR",
+          duration: dur,
+          // Penalty shootout winner — needed to show "P" next to the correct
+          // team name since the score itself is now level (e.g. 1-1).
+          penaltyWinner: dur === "PENALTY_SHOOTOUT" ? m.score?.winner : null,
         };
         console.log(`Score: ${home} ${scores[key].homeScore}-${scores[key].awayScore} ${away} [${status}]`);
       });
@@ -1419,13 +1441,55 @@ export default function App() {
 
   function getMatchesForPickDate(pickDate) {
     const gm = matchesByPickDate[pickDate]||[];
-    const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate&&koFixtures[s.id]).map(s=>({...s,...koFixtures[s.id],isKnockout:true}));
+    // Only include knockout slots where BOTH teams are confirmed — players
+    // can't meaningfully pick a team to win a match where the opponent isn't
+    // known yet. Partial fixtures (one side only) are correctly shown on the
+    // Schedule/Grid as informational, but excluded here until complete.
+    const km = KNOCKOUT_SLOTS
+      .filter(s=>s.pickDate===pickDate && koFixtures[s.id]?.home && koFixtures[s.id]?.away)
+      .map(s=>({...s,...koFixtures[s.id],isKnockout:true}));
     return [...gm,...km];
   }
   // For grid header display only — includes unconfirmed knockout slots so column shows M90 etc
+  // Reverse map: for each R16/QF/SF/Final slot, which two earlier-round slots feed it
+  // Used to backfill a "W(MXX)" placeholder for the side of a fixture that isn't
+  // resolved yet, so the Schedule can show e.g. "Canada vs W(M75)" the moment
+  // Canada wins, rather than waiting for BOTH sides to be confirmed.
+  const SLOT_FEEDERS = (() => {
+    const map = {};
+    for(const brackets of [R16_BRACKET, QF_BRACKET, SF_BRACKET, FINAL_BRACKET]) {
+      for(const [slotId, bracket] of Object.entries(brackets)) {
+        const homeFeed = bracket.home?.startsWith("W") ? Number(bracket.home.slice(1)) : null;
+        const awayFeed = bracket.away?.startsWith("W") ? Number(bracket.away.slice(1)) : null;
+        map[slotId] = { homeFeed, awayFeed };
+      }
+    }
+    return map;
+  })();
+
+  // Given a knockout slot + its raw koFixtures entry, fill in any missing side
+  // with a "W(MXX)" placeholder so the UI can show it even before both teams
+  // are confirmed (rather than the slot being entirely absent or showing "TBD"
+  // when actually one side IS known).
+  function resolveFixtureSides(slotId, fix) {
+    const feeders = SLOT_FEEDERS[slotId];
+    if(!fix) {
+      // No fixture row at all yet — show both sides as placeholders if we know the feeders
+      if(feeders) return { home: feeders.homeFeed?`W(M${feeders.homeFeed})`:null, away: feeders.awayFeed?`W(M${feeders.awayFeed})`:null };
+      return { home: null, away: null };
+    }
+    return {
+      home: fix.home || (feeders?.homeFeed ? `W(M${feeders.homeFeed})` : null),
+      away: fix.away || (feeders?.awayFeed ? `W(M${feeders.awayFeed})` : null),
+    };
+  }
+
   function getMatchesForDisplay(pickDate) {
     const gm = matchesByPickDate[pickDate]||[];
-    const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate).map(s=>({...s,...(koFixtures[s.id]||{}),isKnockout:true}));
+    const km = KNOCKOUT_SLOTS.filter(s=>s.pickDate===pickDate).map(s=>{
+      const resolved = resolveFixtureSides(s.id, koFixtures[s.id]);
+      return {...s, ...resolved, isKnockout:true};
+    });
     return [...gm,...km];
   }
   const activeDates = allPickDates.filter(d => {
@@ -1626,8 +1690,8 @@ export default function App() {
       .in("player_id", playerIds)
       .eq("pick_date", pickDate)
       .neq("choice","");
-    const alreadyPickedInDB = new Set((existingPicks||[]).map(r=>r.player_id));
-    const safeToAssign = unpicked.filter(p=>!alreadyPickedInDB.has(p.id));
+    const alreadyPickedInDB = new Set((existingPicks||[]).map(r=>String(r.player_id)));
+    const safeToAssign = unpicked.filter(p=>!alreadyPickedInDB.has(String(p.id)));
 
     if(alreadyPickedInDB.size > 0) {
       console.warn(`Howard's Law: ${alreadyPickedInDB.size} player(s) had picks in DB not in memory — skipping them to protect real picks.`);
@@ -1718,9 +1782,9 @@ export default function App() {
     const persistedRaw = results[`${m.pickDate}|__score__${m.id}`];
     let persisted = null;
     if(persistedRaw) {
-      const [scorePart, dur] = persistedRaw.split(":");
+      const [scorePart, dur, winSide] = persistedRaw.split(":");
       const [homeScore, awayScore] = scorePart.split("-").map(Number);
-      persisted = {homeScore, awayScore, duration: dur || "REGULAR"};
+      persisted = {homeScore, awayScore, duration: dur || "REGULAR", penaltyWinner: winSide || null};
     }
 
     const isLive = !persisted && live && (live.status==="IN_PLAY"||live.status==="PAUSED"||live.status==="HALFTIME");
@@ -1755,8 +1819,9 @@ export default function App() {
           {isFinishedFallback&&<span style={{...pill("muted"),fontSize:9,flexShrink:0}}>FT</span>}
         </div>
         <div style={{flex:1,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>
+          {isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&disp.penaltyWinner==="HOME_TEAM"&&<span style={{fontSize:10,fontWeight:700,marginRight:3,color:T.amber}}>P</span>}
           {m.home?`${f(m.home)} ${m.home}`:"TBD"}
-          {showScore&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{disp.homeScore}–{disp.awayScore}{isFinished&&disp.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}{isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>P</span>}</span>}
+          {showScore&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{disp.homeScore}–{disp.awayScore}{isFinished&&disp.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}</span>}
           {!showScore&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
           {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
           {(()=>{
@@ -1776,6 +1841,7 @@ export default function App() {
             }
             return away ? `${f(away)} ${away}` : "TBD";
           })()}
+          {isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&disp.penaltyWinner==="AWAY_TEAM"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3,color:T.amber}}>P</span>}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
           <span style={{fontSize:11,color:isLive?T.red:T.muted}}>{isLive?(live.minute?live.minute+"'":"Live"):isFinishedFallback?"":fmtBST(m.kickoffBST)+" BST"}</span>
