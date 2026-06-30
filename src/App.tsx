@@ -1340,6 +1340,17 @@ export default function App() {
           away: fix.away || existing.away || null,
         };
         if(!merged.home && !merged.away) continue; // nothing to save
+        // CRITICAL: skip the save entirely if nothing has actually changed vs
+        // what's already stored. Without this check, every poll re-saves the
+        // same partial fixture (e.g. "Paraguay vs ?"), which triggers loadAll(),
+        // which updates koFixtures state, which re-fires this whole effect
+        // (koFixtures is a dependency below) — causing an infinite save/reload
+        // loop and the page visibly flashing every few seconds.
+        const existingHome = existing.home || "";
+        const existingAway = existing.away || "";
+        const newHome = merged.home || "";
+        const newAway = merged.away || "";
+        if(existingHome === newHome && existingAway === newAway) continue; // no change — skip
         if(merged.home && merged.away) {
           // Complete — save as full fixture
           saves.push(
@@ -1374,13 +1385,21 @@ export default function App() {
     }
   }, [loadAll]); // eslint-disable-line
 
-  // Check fixtures every 30 minutes — API-Football free tier is 100 req/day
+  // Check fixtures every 30 minutes — API-Football free tier is 100 req/day.
+  // IMPORTANT: koFixtures is intentionally read via a ref (koFixturesRef),
+  // NOT as a direct effect dependency. checkAutoFixtures calls loadAll() on
+  // every successful save, which updates the koFixtures state — if koFixtures
+  // were a dependency here, that state update would re-trigger this entire
+  // effect immediately (ignoring the 30-minute interval), causing a fast
+  // save→reload→save loop and the page visibly flashing.
+  const koFixturesRef = useRef(koFixtures);
+  useEffect(() => { koFixturesRef.current = koFixtures; }, [koFixtures]);
   useEffect(() => {
-    const run = () => checkAutoFixtures(koFixtures);
+    const run = () => checkAutoFixtures(koFixturesRef.current);
     run();
     const i = setInterval(run, 30 * 60 * 1000);
     return () => clearInterval(i);
-  }, [koFixtures, checkAutoFixtures]);
+  }, [checkAutoFixtures]);
 
   // ── LIVE SCORES — single call for all WC matches, filter client-side ───
   const fetchLiveScores = useCallback(async () => {
