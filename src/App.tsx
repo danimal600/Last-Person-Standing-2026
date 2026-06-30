@@ -2495,6 +2495,34 @@ export default function App() {
               {popup.matchSummary ? (
                 <>
                   <div style={{fontSize:16,fontWeight:800,color:T.amber,marginBottom:4}}>{fmtDate(popup.date)}</div>
+
+                  {/* Fixtures for this day — always shown, even with zero picks yet.
+                      Shows full team names where confirmed, partial confirmation
+                      (one side known, other as W(MXX)), or W(MXX) v W(MXX) where
+                      neither side is resolved. This makes the popup useful for
+                      R16+ dates well before anyone has actually picked. */}
+                  {popup.matches && popup.matches.some(m=>m.isKnockout) && (
+                    <div style={{marginBottom:16,paddingBottom:14,borderBottom:`1px solid ${T.border}`}}>
+                      <div style={{fontSize:11,color:T.muted,marginBottom:8}}>Fixtures</div>
+                      {popup.matches.filter(m=>m.isKnockout).map((m,i)=>{
+                        const homeLabel = m.home || `W(M${m.id})`;
+                        const awayLabel = m.away || `W(M${m.id})`;
+                        const isRealHome = homeLabel && !homeLabel.startsWith("W(M");
+                        const isRealAway = awayLabel && !awayLabel.startsWith("W(M");
+                        return (
+                          <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,fontSize:13}}>
+                            <span style={{...pill("muted"),fontSize:9,flexShrink:0}}>M{m.id}</span>
+                            <span style={{flex:1}}>
+                              {isRealHome?`${f(homeLabel)} ${homeLabel}`:homeLabel}
+                              <span style={{color:T.muted}}> vs </span>
+                              {isRealAway?`${f(awayLabel)} ${awayLabel}`:awayLabel}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Who picked what — most popular first</div>
                   {popup.matchSummary.filter(x=>x.count>0).map((item,i)=>(
                     <div key={i} style={{marginBottom:14}}>
@@ -2745,12 +2773,16 @@ export default function App() {
                 {/* Group stage matches */}
                 {groupMs.map((m,i)=><MatchRow key={i} m={m}/>)}
 
-                {/* Knockout slots — always show, with teams if known */}
+                {/* Knockout slots — always show, with teams if known.
+                    Use resolveFixtureSides (not raw koFixtures) so a slot with
+                    only one side confirmed shows "Paraguay vs W(M77)" rather
+                    than "Paraguay vs TBD" — same resolution Schedule's other
+                    knockout matches already get via getMatchesForDisplay. */}
                 {koSlots.map(slot=>{
-                  const fix = koFixtures[slot.id];
+                  const resolved = resolveFixtureSides(slot.id, koFixtures[slot.id]);
                   const bst = etToBst(slot.kickoffET).bst;
-                  if(fix) {
-                    return <MatchRow key={slot.id} m={{...slot,...fix,kickoffBST:bst,isKnockout:true}}/>;
+                  if(resolved.home || resolved.away) {
+                    return <MatchRow key={slot.id} m={{...slot,...resolved,kickoffBST:bst,isKnockout:true}}/>;
                   }
                   return (
                     <div key={slot.id} style={{background:"rgba(0,0,0,0.18)",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
