@@ -1350,10 +1350,14 @@ export default function App() {
           );
           console.log(`Auto-fixture complete: slot ${sid} → ${merged.home} vs ${merged.away}`);
         } else {
-          // Partial — save what we have so next poll can complete it
-          const partial = { slot_id: sid };
-          if(merged.home) partial.home = merged.home;
-          if(merged.away) partial.away = merged.away;
+          // Partial — save what we have so next poll can complete it.
+          // IMPORTANT: must explicitly send both home and away keys (using null
+          // for the unknown side) rather than omitting the key entirely — if the
+          // ko_fixtures table has NOT NULL constraints or the upsert is doing a
+          // column-by-column merge, omitting a key can cause a 400 Bad Request
+          // or leave a stale value in place instead of correctly representing
+          // "this side is not yet known".
+          const partial = { slot_id: sid, home: merged.home || null, away: merged.away || null };
           saves.push(
             supabase.from("ko_fixtures").upsert(partial, { onConflict: "slot_id" })
           );
@@ -1361,7 +1365,10 @@ export default function App() {
         }
       }
       if(saves.length > 0) {
-        await Promise.all(saves);
+        const results = await Promise.all(saves);
+        results.forEach((r, i) => {
+          if(r.error) console.error(`Auto-fixture save FAILED:`, r.error.message, r.error.details, r.error.hint);
+        });
         loadAll(false);
       }
     } catch(e) {
