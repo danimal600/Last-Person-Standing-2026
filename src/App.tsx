@@ -1154,41 +1154,53 @@ export default function App() {
     try {
       // API-Football returns all 12 group tables properly
       // GET /standings?league=1&season=2026
-      const res = await fetch("/.netlify/functions/apifootball?path=standings%3Fleague%3D1%26season%3D2026");
-      if(!res.ok) { console.warn("API-Football standings error:", res.status); return; }
-      const data = await res.json();
+      // IMPORTANT: this standings fetch is only needed for GROUP→R32 propagation.
+      // If it fails (e.g. the API stops returning "standings" once the group
+      // stage has finished, which has happened), we must NOT early-return —
+      // doing so would also block the separate R32→R16/QF/SF/Final propagation
+      // further down in this same function, which doesn't depend on standings
+      // at all. So on failure we just treat groups as empty and carry on.
+      let groups = {};
+      let allGroupsDone = false;
+      try {
+        const res = await fetch("/.netlify/functions/apifootball?path=standings%3Fleague%3D1%26season%3D2026");
+        if(res.ok) {
+          const data = await res.json();
+          const leagueData = data.response?.[0]?.league;
+          if(leagueData?.standings) {
+            // standings is an array of arrays — one array per group
+            // Each team row has: rank, team.name, points, goalsDiff, all.played etc
+            for(const groupTable of leagueData.standings) {
+              if(!groupTable?.length) continue;
+              // Group name is in each row's group field e.g. "Group A"
+              const groupRaw = groupTable[0]?.group || "";
+              const gm = groupRaw.match(/Group ([A-L])/i);
+              if(!gm) continue;
+              const group = gm[1].toUpperCase();
 
-      // API-Football response: { response: [ { league: { standings: [[...groupA],[...groupB],...] } } ] }
-      const leagueData = data.response?.[0]?.league;
-      if(!leagueData?.standings) { console.warn("No standings in API-Football response"); return; }
-
-      // standings is an array of arrays — one array per group
-      // Each team row has: rank, team.name, points, goalsDiff, all.played etc
-      const groups = {};
-      for(const groupTable of leagueData.standings) {
-        if(!groupTable?.length) continue;
-        // Group name is in each row's group field e.g. "Group A"
-        const groupRaw = groupTable[0]?.group || "";
-        const m = groupRaw.match(/Group ([A-L])/i);
-        if(!m) continue;
-        const group = m[1].toUpperCase();
-
-        groups[group] = groupTable.map(row => ({
-          team: TEAM_NAME_MAP[row.team?.name] || row.team?.name,
-          points: row.points,
-          gd: row.goalsDiff,
-          gf: row.all?.goals?.for || 0,
-          played: row.all?.played || 0,
-          pos: row.rank,
-        }));
-        const done = groups[group].length===4 && groups[group].every(t=>t.played>=3);
-        if(done) console.log(`Group ${group} done: 1st=${groups[group][0].team} 2nd=${groups[group][1].team}`);
+              groups[group] = groupTable.map(row => ({
+                team: TEAM_NAME_MAP[row.team?.name] || row.team?.name,
+                points: row.points,
+                gd: row.goalsDiff,
+                gf: row.all?.goals?.for || 0,
+                played: row.all?.played || 0,
+                pos: row.rank,
+              }));
+              const done = groups[group].length===4 && groups[group].every(t=>t.played>=3);
+              if(done) console.log(`Group ${group} done: 1st=${groups[group][0].team} 2nd=${groups[group][1].team}`);
+            }
+            console.log(`Parsed ${Object.keys(groups).length} groups from API-Football`);
+            allGroupsDone = Object.keys(groups).length >= 12 &&
+              Object.values(groups).every(g => g.length >= 4 && g.every(t => t.played >= 3));
+          } else {
+            console.warn("No standings in API-Football response — skipping GROUP→R32 step, R32→R16 will still run");
+          }
+        } else {
+          console.warn("API-Football standings error:", res.status, "— skipping GROUP→R32 step, R32→R16 will still run");
+        }
+      } catch(e) {
+        console.warn("Standings fetch failed — skipping GROUP→R32 step, R32→R16 will still run", e);
       }
-
-      console.log(`Parsed ${Object.keys(groups).length} groups from API-Football`);
-
-      const allGroupsDone = Object.keys(groups).length >= 12 &&
-        Object.values(groups).every(g => g.length >= 4 && g.every(t => t.played >= 3));
 
       const newFixtures = {};
 
