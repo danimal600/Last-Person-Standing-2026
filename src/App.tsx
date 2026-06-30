@@ -2683,6 +2683,29 @@ export default function App() {
       ["3rd Place & Final","2026-07-18","2026-07-19"],
     ];
 
+    // Determine which phase is "current" so we can scroll to it on open —
+    // otherwise the Schedule always starts at Group Stage (long finished)
+    // and the player has to scroll past everything to reach today's games.
+    // Current phase = the one containing today's date, or if today falls in
+    // a gap between phases (e.g. a rest day), the next upcoming phase whose
+    // end date hasn't passed yet.
+    const currentPhaseLabel = (() => {
+      const exact = phases.find(([,from,to]) => today>=from && today<=to);
+      if(exact) return exact[0];
+      const next = phases.find(([,,to]) => today<to);
+      return next ? next[0] : phases[phases.length-1][0];
+    })();
+
+    const phaseRefs = useRef({});
+    useEffect(() => {
+      // Scroll the current phase into view when the Schedule tab opens.
+      // Small timeout lets the layout settle first (cards/match rows render).
+      const t = setTimeout(() => {
+        phaseRefs.current[currentPhaseLabel]?.scrollIntoView({ behavior: "auto", block: "start" });
+      }, 50);
+      return () => clearTimeout(t);
+    }, []); // eslint-disable-line — only run once when Schedule mounts
+
     return phases.map(([label,from,to])=>{
       // For group stage: use activeDates + getMatchesForPickDate as before
       // For knockout: always show all slots in this phase range
@@ -2695,7 +2718,7 @@ export default function App() {
       if(!dates.length) return null;
 
       return (
-        <div key={label} style={card}>
+        <div key={label} ref={el => phaseRefs.current[label] = el} style={card}>
           <div style={sec}>{label}</div>
           {dates.map(pickDate=>{
             const dlBST = deadlineBSTByPickDate[pickDate];
