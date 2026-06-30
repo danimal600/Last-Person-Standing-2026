@@ -900,10 +900,10 @@ export default function App() {
               });
           if(!ourMatch) continue; // can't resolve to one of our scheduled matches yet
           const dur = match.score?.duration; // REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT
-          // For penalty-shootout matches, store the pre-shootout (extra time) score
-          // rather than fullTime, which can sometimes reflect the shootout result.
-          const displayScore = dur === "PENALTY_SHOOTOUT" && match.score?.extraTime
-            ? match.score.extraTime
+          // For penalty-shootout matches, store the pre-shootout score (regularTime)
+          // rather than fullTime, which reflects the shootout result instead.
+          const displayScore = dur === "PENALTY_SHOOTOUT" && match.score?.regularTime
+            ? match.score.regularTime
             : score;
           // Encode which side won the shootout (HOME_TEAM/AWAY_TEAM) so the P
           // badge can be placed next to the correct team rather than floating
@@ -1269,23 +1269,8 @@ export default function App() {
         const koData = await koRes.json();
         const koMatches = (koData.matches || []).filter(m =>
           m.status === "FINISHED" &&
-          ["ROUND_OF_32","LAST_16","QUARTER_FINALS","SEMI_FINALS","FINAL"].includes(m.stage)
+          ["LAST_32","LAST_16","QUARTER_FINALS","SEMI_FINALS","FINAL"].includes(m.stage)
         );
-        console.log("[FIXTURES DEBUG] total matches from API:", koData.matches?.length, "finished KO matches:", koMatches.length);
-        console.log("[FIXTURES DEBUG] finished KO matches:", koMatches.map(m=>({home:m.homeTeam?.name,away:m.awayTeam?.name,stage:m.stage,winner:m.score?.winner})));
-        console.log("[FIXTURES DEBUG] currentKoFixtures[73]:", JSON.stringify(currentKoFixtures[73]));
-        console.log("[FIXTURES DEBUG] currentKoFixtures[75]:", JSON.stringify(currentKoFixtures[75]));
-        // Find the actual South Africa/Canada and Netherlands/Morocco matches regardless of our filter
-        const saCanada = (koData.matches||[]).find(m =>
-          (m.homeTeam?.name?.includes("South Africa")||m.awayTeam?.name?.includes("South Africa")) &&
-          (m.homeTeam?.name?.includes("Canada")||m.awayTeam?.name?.includes("Canada"))
-        );
-        console.log("[FIXTURES DEBUG] South Africa v Canada raw match:", JSON.stringify(saCanada));
-        const nlMorocco = (koData.matches||[]).find(m =>
-          (m.homeTeam?.name?.includes("Netherlands")||m.awayTeam?.name?.includes("Netherlands")) &&
-          (m.homeTeam?.name?.includes("Morocco")||m.awayTeam?.name?.includes("Morocco"))
-        );
-        console.log("[FIXTURES DEBUG] Netherlands v Morocco raw match:", JSON.stringify(nlMorocco));
 
         // Map API match IDs to our slot IDs using kickoff date + teams
         // For each finished KO match, find winner and populate next round
@@ -1307,8 +1292,6 @@ export default function App() {
           // by matching the teams to existing ko fixtures
           const matchSlot = Object.entries({...currentKoFixtures,...newFixtures})
             .find(([,fix]) => fix.home===home && fix.away===away || fix.home===away && fix.away===home);
-
-          console.log(`[FIXTURES DEBUG] ${home} vs ${away} winner=${winner} matchSlot found:`, matchSlot?.[0] || "NOT FOUND");
 
           if(!matchSlot) continue;
           const slotId = Number(matchSlot[0]);
@@ -1418,10 +1401,10 @@ export default function App() {
         const key = `${home}|${away}`;
         const dur = m.score?.duration || "REGULAR";
         // For matches decided on penalties, football-data.org's "fullTime" score
-        // can sometimes reflect the shootout result rather than the 120-minute
-        // score. The correct pre-shootout score (after extra time, still level)
-        // is under extraTime. Prefer that when duration is PENALTY_SHOOTOUT.
-        const preShootoutScore = dur === "PENALTY_SHOOTOUT" ? m.score?.extraTime : null;
+        // reflects the shootout result (e.g. 3-4), not the actual scoreline.
+        // The correct score to display is "regularTime" (the 90-min/120-min
+        // score before penalties) — confirmed from live API data.
+        const preShootoutScore = dur === "PENALTY_SHOOTOUT" ? m.score?.regularTime : null;
         scores[key] = {
           home, away,
           homeScore: preShootoutScore?.home ?? m.score?.fullTime?.home ?? m.score?.halfTime?.home ?? 0,
