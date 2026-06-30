@@ -1275,6 +1275,17 @@ export default function App() {
         console.log("[FIXTURES DEBUG] finished KO matches:", koMatches.map(m=>({home:m.homeTeam?.name,away:m.awayTeam?.name,stage:m.stage,winner:m.score?.winner})));
         console.log("[FIXTURES DEBUG] currentKoFixtures[73]:", JSON.stringify(currentKoFixtures[73]));
         console.log("[FIXTURES DEBUG] currentKoFixtures[75]:", JSON.stringify(currentKoFixtures[75]));
+        // Find the actual South Africa/Canada and Netherlands/Morocco matches regardless of our filter
+        const saCanada = (koData.matches||[]).find(m =>
+          (m.homeTeam?.name?.includes("South Africa")||m.awayTeam?.name?.includes("South Africa")) &&
+          (m.homeTeam?.name?.includes("Canada")||m.awayTeam?.name?.includes("Canada"))
+        );
+        console.log("[FIXTURES DEBUG] South Africa v Canada raw match:", JSON.stringify(saCanada));
+        const nlMorocco = (koData.matches||[]).find(m =>
+          (m.homeTeam?.name?.includes("Netherlands")||m.awayTeam?.name?.includes("Netherlands")) &&
+          (m.homeTeam?.name?.includes("Morocco")||m.awayTeam?.name?.includes("Morocco"))
+        );
+        console.log("[FIXTURES DEBUG] Netherlands v Morocco raw match:", JSON.stringify(nlMorocco));
 
         // Map API match IDs to our slot IDs using kickoff date + teams
         // For each finished KO match, find winner and populate next round
