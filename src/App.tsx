@@ -905,6 +905,9 @@ export default function App() {
           const displayScore = dur === "PENALTY_SHOOTOUT" && match.score?.regularTime
             ? match.score.regularTime
             : score;
+          if(dur === "PENALTY_SHOOTOUT") {
+            console.log(`[PEN DEBUG] ${home} v ${away}: dur=${dur} fullTime=${JSON.stringify(score)} regularTime=${JSON.stringify(match.score?.regularTime)} displayScore=${JSON.stringify(displayScore)} winner=${match.score?.winner}`);
+          }
           // Encode which side won the shootout (HOME_TEAM/AWAY_TEAM) so the P
           // badge can be placed next to the correct team rather than floating
           // generically after the score.
@@ -913,7 +916,11 @@ export default function App() {
             + (dur && dur!=="REGULAR" ? `:${dur}` : "")
             + (winSide ? `:${winSide}` : "");
           const scoreKey = `__score__${ourMatch.id}`;
-          if(updatedResults[`${ourMatch.pickDate}|${scoreKey}`] === scoreVal) continue; // already up to date
+          const existingVal = updatedResults[`${ourMatch.pickDate}|${scoreKey}`];
+          if(dur === "PENALTY_SHOOTOUT") {
+            console.log(`[PEN DEBUG] scoreVal computed: "${scoreVal}" existing: "${existingVal}"`);
+          }
+          if(existingVal === scoreVal) continue; // already up to date
           await supabase.from("results").upsert([{pick_date:ourMatch.pickDate,team:scoreKey,outcome:scoreVal}],{onConflict:"pick_date,team"});
           updatedResults[`${ourMatch.pickDate}|${scoreKey}`] = scoreVal;
           didAnything = true;
