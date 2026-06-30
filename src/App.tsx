@@ -440,6 +440,16 @@ export default function App() {
   const [screen,     setScreen]     = useState("profile");
   const [activeId,   setActiveId]   = useState(() => { try { return localStorage.getItem("lps_activeId")||null; } catch { return null; } });
   const [koFixtures, setKoFixtures] = useState({});
+  // Ref mirror of koFixtures — used by checkAutoResults and checkAutoFixtures
+  // (both useCallback'd with stable dependency arrays) so they always read the
+  // CURRENT koFixtures via closure, rather than capturing a stale snapshot
+  // from whenever the callback was first created. Without this, confirmed R32
+  // fixtures (e.g. South Africa v Canada) added to koFixtures AFTER mount were
+  // invisible to the match-finding logic in checkAutoResults, causing
+  // ourMatchId to come back undefined for every R32+ match and silently
+  // breaking both lives-deduction and the penalty-shootout score persist fix.
+  const koFixturesRef = useRef(koFixtures);
+  useEffect(() => { koFixturesRef.current = koFixtures; }, [koFixtures]);
   const [results,    setResults]    = useState({});
   const [loading,    setLoading]    = useState(true);
   const [toast,       setToast]       = useState(null);
@@ -817,8 +827,8 @@ export default function App() {
         if(currentResults[`${etDate}|${home}`]) return; // already logged
         // Find OUR app's match id for this fixture (needed for the Draw#<id> sentinel key)
         const ourMatch = GROUP_MATCHES.find(m => m.etDate===etDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
-          || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
-              const f = koFixtures[s.id];
+          || KNOCKOUT_SLOTS.filter(s=>koFixturesRef.current[s.id]).find(s => {
+              const f = koFixturesRef.current[s.id];
               return (f.home===home&&f.away===away)||(f.home===away&&f.away===home);
             });
         if(!newlyFinishedByDate[etDate]) newlyFinishedByDate[etDate] = [];
@@ -894,8 +904,8 @@ export default function App() {
           const away = TEAM_NAME_MAP[match.awayTeam?.name] || match.awayTeam?.name;
           const matchEtDate = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York"}).format(new Date(match.utcDate));
           const ourMatch = GROUP_MATCHES.find(m => m.etDate===matchEtDate && ((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))
-            || KNOCKOUT_SLOTS.filter(s=>koFixtures[s.id]).find(s => {
-                const fx = koFixtures[s.id];
+            || KNOCKOUT_SLOTS.filter(s=>koFixturesRef.current[s.id]).find(s => {
+                const fx = koFixturesRef.current[s.id];
                 return (fx.home===home&&fx.away===away)||(fx.home===away&&fx.away===home);
               });
           if(!ourMatch) continue; // can't resolve to one of our scheduled matches yet
@@ -905,9 +915,6 @@ export default function App() {
           const displayScore = dur === "PENALTY_SHOOTOUT" && match.score?.regularTime
             ? match.score.regularTime
             : score;
-          if(dur === "PENALTY_SHOOTOUT") {
-            console.log(`[PEN DEBUG] ${home} v ${away}: dur=${dur} fullTime=${JSON.stringify(score)} regularTime=${JSON.stringify(match.score?.regularTime)} displayScore=${JSON.stringify(displayScore)} winner=${match.score?.winner}`);
-          }
           // Encode which side won the shootout (HOME_TEAM/AWAY_TEAM) so the P
           // badge can be placed next to the correct team rather than floating
           // generically after the score.
@@ -917,9 +924,6 @@ export default function App() {
             + (winSide ? `:${winSide}` : "");
           const scoreKey = `__score__${ourMatch.id}`;
           const existingVal = updatedResults[`${ourMatch.pickDate}|${scoreKey}`];
-          if(dur === "PENALTY_SHOOTOUT") {
-            console.log(`[PEN DEBUG] scoreVal computed: "${scoreVal}" existing: "${existingVal}"`);
-          }
           if(existingVal === scoreVal) continue; // already up to date
           await supabase.from("results").upsert([{pick_date:ourMatch.pickDate,team:scoreKey,outcome:scoreVal}],{onConflict:"pick_date,team"});
           updatedResults[`${ourMatch.pickDate}|${scoreKey}`] = scoreVal;
@@ -1393,14 +1397,12 @@ export default function App() {
   }, [loadAll]); // eslint-disable-line
 
   // Check fixtures every 30 minutes — API-Football free tier is 100 req/day.
-  // IMPORTANT: koFixtures is intentionally read via a ref (koFixturesRef),
-  // NOT as a direct effect dependency. checkAutoFixtures calls loadAll() on
-  // every successful save, which updates the koFixtures state — if koFixtures
-  // were a dependency here, that state update would re-trigger this entire
-  // effect immediately (ignoring the 30-minute interval), causing a fast
-  // save→reload→save loop and the page visibly flashing.
-  const koFixturesRef = useRef(koFixtures);
-  useEffect(() => { koFixturesRef.current = koFixtures; }, [koFixtures]);
+  // koFixturesRef declared near koFixtures state above — read via ref here
+  // (not as a direct effect dependency) because checkAutoFixtures calls
+  // loadAll() on every successful save, which updates koFixtures state — if
+  // koFixtures were a dependency here, that state update would re-trigger
+  // this entire effect immediately (ignoring the 30-minute interval), causing
+  // a fast save→reload→save loop and the page visibly flashing.
   useEffect(() => {
     const run = () => checkAutoFixtures(koFixturesRef.current);
     run();
