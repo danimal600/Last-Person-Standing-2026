@@ -1247,15 +1247,18 @@ export default function App() {
       }
 
       // Now handle R16/QF/SF/Final from knockout results
-      // Get finished knockout matches from API — MUST include ROUND_OF_32 so that
-      // R32 results can propagate winners into the R16 fixtures. Without this,
-      // R16 slots never auto-populate even after R32 matches finish.
-      const koRes = await fetch(
-        "/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches%3Fstage%3DROUND_OF_32%2CLAST_16%2CQUARTER_FINALS%2CSEMI_FINALS%2CFINAL%26status%3DFINISHED"
-      );
+      // Get finished knockout matches from API. Deliberately fetch the FULL
+      // unfiltered match list and filter client-side — server-side stage+status
+      // query params have proven unreliable with this API (see the comment on
+      // the main results-checker above this function), so this MUST follow the
+      // same unfiltered-fetch pattern or results can silently fail to come back.
+      const koRes = await fetch("/.netlify/functions/fdorg?path=competitions%2FWC%2Fmatches");
       if(koRes.ok) {
         const koData = await koRes.json();
-        const koMatches = koData.matches || [];
+        const koMatches = (koData.matches || []).filter(m =>
+          m.status === "FINISHED" &&
+          ["ROUND_OF_32","LAST_16","QUARTER_FINALS","SEMI_FINALS","FINAL"].includes(m.stage)
+        );
 
         // Map API match IDs to our slot IDs using kickoff date + teams
         // For each finished KO match, find winner and populate next round
