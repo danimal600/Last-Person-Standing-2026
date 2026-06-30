@@ -1351,13 +1351,11 @@ export default function App() {
           console.log(`Auto-fixture complete: slot ${sid} → ${merged.home} vs ${merged.away}`);
         } else {
           // Partial — save what we have so next poll can complete it.
-          // IMPORTANT: must explicitly send both home and away keys (using null
-          // for the unknown side) rather than omitting the key entirely — if the
-          // ko_fixtures table has NOT NULL constraints or the upsert is doing a
-          // column-by-column merge, omitting a key can cause a 400 Bad Request
-          // or leave a stale value in place instead of correctly representing
-          // "this side is not yet known".
-          const partial = { slot_id: sid, home: merged.home || null, away: merged.away || null };
+          // IMPORTANT: the ko_fixtures table has NOT NULL constraints on both
+          // home and away columns (confirmed via Supabase error: "null value
+          // in column away... violates not-null constraint"). So the unknown
+          // side must be an empty string "", never null/undefined/omitted.
+          const partial = { slot_id: sid, home: merged.home || "", away: merged.away || "" };
           saves.push(
             supabase.from("ko_fixtures").upsert(partial, { onConflict: "slot_id" })
           );
