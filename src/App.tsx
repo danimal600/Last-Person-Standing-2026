@@ -1259,6 +1259,10 @@ export default function App() {
           m.status === "FINISHED" &&
           ["ROUND_OF_32","LAST_16","QUARTER_FINALS","SEMI_FINALS","FINAL"].includes(m.stage)
         );
+        console.log("[FIXTURES DEBUG] total matches from API:", koData.matches?.length, "finished KO matches:", koMatches.length);
+        console.log("[FIXTURES DEBUG] finished KO matches:", koMatches.map(m=>({home:m.homeTeam?.name,away:m.awayTeam?.name,stage:m.stage,winner:m.score?.winner})));
+        console.log("[FIXTURES DEBUG] currentKoFixtures[73]:", JSON.stringify(currentKoFixtures[73]));
+        console.log("[FIXTURES DEBUG] currentKoFixtures[75]:", JSON.stringify(currentKoFixtures[75]));
 
         // Map API match IDs to our slot IDs using kickoff date + teams
         // For each finished KO match, find winner and populate next round
@@ -1280,6 +1284,8 @@ export default function App() {
           // by matching the teams to existing ko fixtures
           const matchSlot = Object.entries({...currentKoFixtures,...newFixtures})
             .find(([,fix]) => fix.home===home && fix.away===away || fix.home===away && fix.away===home);
+
+          console.log(`[FIXTURES DEBUG] ${home} vs ${away} winner=${winner} matchSlot found:`, matchSlot?.[0] || "NOT FOUND");
 
           if(!matchSlot) continue;
           const slotId = Number(matchSlot[0]);
