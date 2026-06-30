@@ -1868,26 +1868,24 @@ export default function App() {
         </div>
         <div style={{flex:1,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>
           {isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&disp.penaltyWinner==="HOME_TEAM"&&<span style={{fontSize:10,fontWeight:700,marginRight:3,color:T.amber}}>P</span>}
-          {m.home?`${f(m.home)} ${m.home}`:"TBD"}
+          {(()=>{
+            // m.home is already fully resolved upstream by resolveFixtureSides:
+            // a real team name if confirmed, or a literal "W(M77)" placeholder
+            // if not. Trust it directly — do NOT re-resolve here, which
+            // previously caused inconsistent output (sometimes a clean W(MXX),
+            // sometimes a guessed "TeamA/TeamB" depending on whether the feeder
+            // match's fixture happened to be confirmed yet).
+            if(!m.home) return "TBD";
+            const isReal = !m.home.startsWith("W(M");
+            return isReal ? `${f(m.home)} ${m.home}` : m.home;
+          })()}
           {showScore&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>{disp.homeScore}–{disp.awayScore}{isFinished&&disp.duration==="EXTRA_TIME"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3}}>ET</span>}</span>}
           {!showScore&&isFinishedFallback&&<span style={{fontWeight:900,color:T.amber,margin:"0 5px"}}>–</span>}
           {!(isLive||isFinishedFallback)&&<span style={{color:T.muted}}> vs </span>}
           {(()=>{
-            const away = m.away||"";
-            // Resolve W(MXX) placeholder to actual team name if result known
-            if(away.startsWith("W(M")) {
-              const r32id = Number(away.match(/W\(M(\d+)\)/)?.[1]);
-              const fix = koFixtures[r32id];
-              if(fix?.home&&fix?.away) {
-                const slot32 = KNOCKOUT_SLOTS.find(s=>s.id===r32id);
-                const pd = slot32?.pickDate;
-                if(pd&&results[`${pd}|${fix.home}`]==="win") return `${f(fix.home)} ${fix.home}`;
-                if(pd&&results[`${pd}|${fix.away}`]==="win") return `${f(fix.away)} ${fix.away}`;
-                return `${f(fix.home)}${fix.home}/${fix.away}`;
-              }
-              return "TBD";
-            }
-            return away ? `${f(away)} ${away}` : "TBD";
+            if(!m.away) return "TBD";
+            const isReal = !m.away.startsWith("W(M");
+            return isReal ? `${f(m.away)} ${m.away}` : m.away;
           })()}
           {isFinished&&disp.duration==="PENALTY_SHOOTOUT"&&disp.penaltyWinner==="AWAY_TEAM"&&<span style={{fontSize:10,fontWeight:700,marginLeft:3,color:T.amber}}>P</span>}
         </div>
@@ -2379,7 +2377,15 @@ export default function App() {
       setPopup({date:d, team:pick, pickers});
     }
     function handleDateClick(d) {
-      const ms = getMatchesForPickDate(d);
+      // Use getMatchesForDisplay (not getMatchesForPickDate) — this popup is
+      // purely informational, showing the day's fixtures whether or not both
+      // sides are confirmed yet. getMatchesForPickDate is intentionally
+      // stricter (both teams must be known) because it also drives what's
+      // pickable in My Picks — using it here meant partially-confirmed R16+
+      // matches were silently dropped, and fully-unconfirmed dates (e.g. 5
+      // Jul before either R32 feeder match finishes) showed nothing at all
+      // when clicked.
+      const ms = getMatchesForDisplay(d);
       if(ms.length===0) return;
       // Sort: evening/afternoon games first, early-hours BST games (midnight→6am) last
       const sorted = [...ms].sort((a,b) => {
@@ -2478,12 +2484,20 @@ export default function App() {
           <div onClick={()=>setDatePopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#0d1f00",border:`1px solid ${T.amberBorder}`,borderRadius:16,padding:24,width:"100%",maxWidth:360}}>
               <div style={{fontSize:16,fontWeight:800,color:T.amber,marginBottom:16}}>{fmtDate(datePopup.date)}</div>
-              {datePopup.matches.map((m,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${T.border}`}}>
-                  <div style={{fontSize:14}}>{f(m.home)} {m.home} <span style={{color:T.muted}}>vs</span> {f(m.away)} {m.away}</div>
-                  <div style={{fontSize:12,color:T.muted,marginLeft:12,flexShrink:0}}>{fmtBST(m.kickoffBST)}</div>
-                </div>
-              ))}
+              {datePopup.matches.map((m,i)=>{
+                const homeReal = m.home && !m.home.startsWith("W(M");
+                const awayReal = m.away && !m.away.startsWith("W(M");
+                return (
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:14}}>
+                      {homeReal?`${f(m.home)} ${m.home}`:(m.home||"TBD")}
+                      <span style={{color:T.muted}}> vs </span>
+                      {awayReal?`${f(m.away)} ${m.away}`:(m.away||"TBD")}
+                    </div>
+                    <div style={{fontSize:12,color:T.muted,marginLeft:12,flexShrink:0}}>{fmtBST(m.kickoffBST)}</div>
+                  </div>
+                );
+              })}
               <div style={{fontSize:11,color:T.muted,marginTop:12}}>Picks close {fmtBST(deadlineBSTByPickDate[datePopup.date])} BST</div>
               <button style={{...btn("amber"),width:"100%",marginTop:16}} onClick={()=>setDatePopup(null)}>Close</button>
             </div>
