@@ -239,6 +239,9 @@ const KNOCKOUT_SLOTS = [
   return { ...m, pickDate, kickoffBST: bst, earlyHours };
 });
 
+const FINAL_PICK_DATE = "2026-07-19";
+const THIRD_PLACE_PICK_DATE = "2026-07-18";
+
 const FLAGS = {
   "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷","Czechia":"🇨🇿",
   "Canada":"🇨🇦","Bosnia & Herz.":"🇧🇦","USA":"🇺🇸","Paraguay":"🇵🇾",
@@ -440,6 +443,10 @@ export default function App() {
   const [screen,     setScreen]     = useState("profile");
   const [activeId,   setActiveId]   = useState(() => { try { return localStorage.getItem("lps_activeId")||null; } catch { return null; } });
   const [koFixtures, setKoFixtures] = useState({});
+  // Tiebreaker: { [playerId]: [{goal: N, corner: N}, ...] } — one entry per "go"
+  // Stored in results table as __tiebreak__|[playerId] = JSON string
+  // Hidden from other players until Final deadline passes
+  const [tiebreakPicks, setTiebreakPicks] = useState({});
   // Ref mirror of koFixtures — used by checkAutoResults and checkAutoFixtures
   // (both useCallback'd with stable dependency arrays) so they always read the
   // CURRENT koFixtures via closure, rather than capturing a stale snapshot
@@ -514,6 +521,16 @@ export default function App() {
       setResults(resObj);
       // Load pick planner enabled setting
       setPickPlannerEnabled(resObj["__settings__|pick_planner"] !== "disabled");
+
+      // Load tiebreaker picks stored as pick_date="__tiebreak__", team=playerId
+      // Revealed to all once Final deadline has passed
+      const tbObj = {};
+      (resData||[]).forEach(r => {
+        if(r.pick_date === "__tiebreak__") {
+          try { tbObj[r.team] = JSON.parse(r.outcome); } catch {}
+        }
+      });
+      setTiebreakPicks(tbObj);
 
       const koObj = {};
       (koData||[]).forEach(k => { koObj[k.slot_id] = { home: k.home, away: k.away }; });
@@ -1552,6 +1569,10 @@ export default function App() {
   // used to colour those picks differently on the Grid (gold) rather than
   // showing them as a plain "wrong" (red), since no life was actually lost.
   const middasDates = computeExpectedLives(players, results).middasDates;
+  // Tiebreaker and Final picks are revealed the moment the Final deadline passes.
+  // Computed inline at render time so it always reflects the latest isLocked state —
+  // never stale, never dependent on a separate state variable being set.
+  const tiebreakRevealed = isLocked(FINAL_PICK_DATE);
 
   // Make a pick for a specific match
   const pickInFlight = useRef(false);
@@ -2305,6 +2326,127 @@ export default function App() {
           </div>
         )}
 
+        {/* ── TIEBREAKER SECTION ─────────────────────────────────────────
+            Shown to all active (non-eliminated) finalists once the 3rd
+            place play-off date has passed. Hidden until then.
+            Picks are stored secretly — other players see 🔒 in the Grid
+            until the Final deadline passes, then everything is revealed.
+        ──────────────────────────────────────────────────────────────── */}
+        {(()=>{
+          const isFinalist = !p.eliminated && p.lives > 0;
+          const tbOpen = today >= THIRD_PLACE_PICK_DATE; // opens after 3rd place day
+          if(!isFinalist || !tbOpen) return null;
+
+          const myGoes = tiebreakPicks[String(p.id)] || [];
+          const maxGoes = p.lives; // Remy's Law
+          const finalLocked = isLocked(FINAL_PICK_DATE);
+
+          // Save a set of goes for this player
+          async function saveTiebreakPicks(goes) {
+            await supabase.from("results").upsert(
+              [{pick_date:"__tiebreak__", team:String(p.id), outcome:JSON.stringify(goes)}],
+              {onConflict:"pick_date,team"}
+            );
+            setTiebreakPicks(prev=>({...prev,[String(p.id)]:goes}));
+            toast_("success","Tiebreaker goes saved 🎯");
+          }
+
+          return (
+            <div style={{...card,border:`1px solid ${T.amber}`,background:"rgba(201,168,76,0.05)"}}>
+              <div style={{...sec,color:T.amber}}>🎯 Final Tiebreaker — Your Goes</div>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>
+                You have <strong style={{color:T.amber}}>{maxGoes} {maxGoes===1?"go":"goes"}</strong> (= your lives remaining — Remy's Law).
+                Each go is a pair: the minute of the Final's <strong style={{color:T.text}}>first goal</strong> AND first <strong style={{color:T.text}}>corner</strong> (1–120).
+                {!finalLocked && " Your goes are hidden from other players until the Final kicks off."}
+                {finalLocked && " Picks are now locked and revealed below."}
+              </div>
+
+              {finalLocked ? (
+                // REVEALED — show everyone's goes after Final deadline
+                <div>
+                  <div style={{fontSize:11,color:T.amber,fontWeight:700,marginBottom:10}}>All players' goes — revealed</div>
+                  {players.filter(pl=>!pl.eliminated&&pl.lives>0).map(pl=>{
+                    const theirGoes = tiebreakPicks[String(pl.id)] || [];
+                    return (
+                      <div key={pl.id} style={{marginBottom:10,padding:10,background:String(pl.id)===String(p.id)?"rgba(201,168,76,0.08)":"rgba(0,0,0,0.2)",borderRadius:8,border:`1px solid ${T.border}`}}>
+                        <div style={{fontSize:12,fontWeight:700,color:String(pl.id)===String(p.id)?T.amber:T.text,marginBottom:6}}>
+                          {pl.name}{String(pl.id)===String(p.id)?" (you)":""} · {pl.lives} ❤️ · {theirGoes.length} go{theirGoes.length!==1?"es":""}
+                        </div>
+                        {theirGoes.length===0
+                          ? <div style={{fontSize:11,color:T.muted}}>No goes submitted</div>
+                          : theirGoes.map((go,gi)=>(
+                            <div key={gi} style={{fontSize:12,color:T.text,marginBottom:3}}>
+                              Go {gi+1}: ⏱️ Goal min <strong style={{color:T.amber}}>{go.goal||"?"}</strong> · 🚩 Corner min <strong style={{color:T.amber}}>{go.corner||"?"}</strong>
+                            </div>
+                          ))
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                // INPUT — player submits their goes before Final
+                <div>
+                  {Array.from({length:maxGoes}).map((_,gi)=>{
+                    const go = myGoes[gi] || {goal:"",corner:""};
+                    return (
+                      <div key={gi} style={{marginBottom:12,padding:10,background:"rgba(0,0,0,0.25)",borderRadius:8,border:`1px solid ${T.border}`}}>
+                        <div style={{fontSize:11,fontWeight:700,color:T.amber,marginBottom:8}}>Go {gi+1}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                          <div>
+                            <div style={{fontSize:10,color:T.muted,marginBottom:4}}>⏱️ First goal minute (1–120)</div>
+                            <input
+                              type="number" min="1" max="120"
+                              value={go.goal}
+                              onChange={e=>{
+                                const updated=[...myGoes];
+                                updated[gi]={...go,goal:e.target.value};
+                                setTiebreakPicks(prev=>({...prev,[String(p.id)]:updated}));
+                              }}
+                              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:"rgba(255,255,255,0.06)",color:T.text,fontSize:16,textAlign:"center",boxSizing:"border-box"}}
+                              placeholder="e.g. 23"
+                            />
+                          </div>
+                          <div>
+                            <div style={{fontSize:10,color:T.muted,marginBottom:4}}>🚩 First corner minute (1–120)</div>
+                            <input
+                              type="number" min="1" max="120"
+                              value={go.corner}
+                              onChange={e=>{
+                                const updated=[...myGoes];
+                                updated[gi]={...go,corner:e.target.value};
+                                setTiebreakPicks(prev=>({...prev,[String(p.id)]:updated}));
+                              }}
+                              style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:"rgba(255,255,255,0.06)",color:T.text,fontSize:16,textAlign:"center",boxSizing:"border-box"}}
+                              placeholder="e.g. 7"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button
+                    onClick={()=>{
+                      const goes = Array.from({length:maxGoes}).map((_,gi)=>{
+                        const go = myGoes[gi]||{goal:"",corner:""};
+                        return {goal:parseInt(go.goal)||null, corner:parseInt(go.corner)||null};
+                      });
+                      const valid = goes.every(g=>g.goal>=1&&g.goal<=120&&g.corner>=1&&g.corner<=120);
+                      if(!valid){ toast_("error","Fill in all goes with valid minutes (1–120)"); return; }
+                      saveTiebreakPicks(goes);
+                    }}
+                    style={{...btn("amber"),width:"100%"}}>
+                    💾 Save my goes
+                  </button>
+                  <div style={{fontSize:10,color:T.muted,marginTop:8,textAlign:"center"}}>
+                    You can edit these any time before the Final kicks off. Other players cannot see your goes.
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {(()=>{
           const groupUsed = allPickDates
             .filter(d=>phaseOf(d)==="GROUP")
@@ -2422,6 +2564,39 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* ── TIEBREAKER REVEAL BANNER ── shown at top of Grid once Final is locked */}
+        {tiebreakRevealed && Object.keys(tiebreakPicks).length > 0 && (
+          <div style={{...card,border:`1px solid ${T.amber}`,marginBottom:16,background:"rgba(201,168,76,0.05)"}}>
+            <div style={{...sec,color:T.amber}}>🎯 Final Tiebreaker — All Goes Revealed</div>
+            {players.filter(pl=>!pl.eliminated||tiebreakPicks[String(pl.id)]).map(pl=>{
+              const goes = tiebreakPicks[String(pl.id)] || [];
+              if(goes.length===0) return null;
+              return (
+                <div key={pl.id} style={{marginBottom:10,padding:10,background:"rgba(0,0,0,0.2)",borderRadius:8,border:`1px solid ${T.border}`}}>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:5}}>
+                    {pl.name} · {pl.lives} ❤️ · {goes.length} go{goes.length!==1?"es":""}
+                  </div>
+                  {goes.map((go,gi)=>(
+                    <div key={gi} style={{fontSize:12,color:T.muted,marginBottom:2}}>
+                      Go {gi+1}: ⏱️ Goal min <strong style={{color:T.amber}}>{go.goal||"?"}</strong> · 🚩 Corner min <strong style={{color:T.amber}}>{go.corner||"?"}</strong>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            <div style={{fontSize:11,color:T.muted,marginTop:8}}>
+              Closest goal-minute go wins. If tied, closest corner-minute go wins. If still tied — coin flip on Danny's Instagram.
+            </div>
+          </div>
+        )}
+
+        {!tiebreakRevealed && today >= THIRD_PLACE_PICK_DATE && activePlayers.length > 1 && (
+          <div style={{...card,marginBottom:16,border:`1px solid ${T.border}`,textAlign:"center"}}>
+            <div style={{fontSize:14,color:T.amber,fontWeight:700,marginBottom:4}}>🔒 Final picks and tiebreaker goes are secret</div>
+            <div style={{fontSize:12,color:T.muted}}>Revealed when the Final kicks off · Go to My Picks to submit your goes</div>
+          </div>
+        )}
         {gridDates.length===0&&<div style={{textAlign:"center",padding:"32px 0",color:T.muted}}><div style={{fontSize:36,marginBottom:12}}>⏳</div>Grid fills as players make picks.</div>}
         {gridDates.length>0&&(
           <div ref={scrollRef} style={{overflowX:"auto"}}>
@@ -2458,13 +2633,30 @@ export default function App() {
                         const o=pickOutcomeForDay(p,d);
                         const bg=cellBg(o);
                         const pick=dp?dp.choice:null;
+
+                        // SECRET FINAL PICKS — hide other players' choices on
+                        // the Final date until the deadline has passed.
+                        // You can always see your own pick; others are 🔒 until locked.
+                        const isFinalDay = d === FINAL_PICK_DATE;
+                        const isOtherPlayer = String(p.id) !== String(activeId);
+                        const finalStillSecret = isFinalDay && isOtherPlayer && !tiebreakRevealed;
+
                         let text="";
-                        if(pick==="Draw"&&dp){const allMs=getMatchesForPickDate(d);const m=allMs.find(m=>String(m.id)===String(dp.matchId));text=m?`${f(m.home)}v${f(m.away)}`:"Draw";}
+                        if(finalStillSecret && pick) { text = "🔒"; }
+                        else if(pick==="Draw"&&dp){const allMs=getMatchesForPickDate(d);const m=allMs.find(m=>String(m.id)===String(dp.matchId));text=m?`${f(m.home)}v${f(m.away)}`:"Draw";}
                         else if(pick){text=pick.length>8?pick.slice(0,8)+"…":pick;}
                         else{text=isLocked(d)?"—":"";}
-                        return <td key={d} onClick={()=>pick&&handleCellClick(d,pick)} style={{padding:"5px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`,cursor:pick?"pointer":"default"}}>
-                          <div style={{fontSize:11,fontWeight:600,color:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
-                            {pick==="Draw"?<><span style={{fontSize:13}}>⚖️</span> <span style={{fontSize:10}}>{text}</span></>:pick?<>{f(pick)} {text}</>:<span style={{color:"#2a4030",fontSize:10}}>{text}</span>}
+
+                        return <td key={d} onClick={()=>!finalStillSecret&&pick&&handleCellClick(d,pick)} style={{padding:"5px 4px",textAlign:"center",background:bg,border:`1px solid rgba(255,255,255,0.04)`,cursor:(!finalStillSecret&&pick)?"pointer":"default"}}>
+                          <div style={{fontSize:11,fontWeight:600,color:finalStillSecret&&pick?T.muted:o==="correct"?"#b0ffcc":o==="wrong"?"#ffb0b0":o==="pending"?"#ffe08a":pick?T.text:T.muted,whiteSpace:"nowrap"}}>
+                            {finalStillSecret&&pick
+                              ? <span style={{fontSize:12}}>🔒</span>
+                              : pick==="Draw"
+                                ? <><span style={{fontSize:13}}>⚖️</span> <span style={{fontSize:10}}>{text}</span></>
+                                : pick
+                                  ? <>{f(pick)} {text}</>
+                                  : <span style={{color:"#2a4030",fontSize:10}}>{text}</span>
+                            }
                           </div>
                         </td>;
                       })}
@@ -2696,7 +2888,7 @@ export default function App() {
               {[
                 ["1️⃣","Picks open","As soon as the 3rd Place Play-off (M103) finishes — roughly 22 hours before the Final kicks off."],
                 ["🏅","Remy's Law — your \"goes\"","Your number of goes = your number of lives at that point. 4 lives = 4 goes. Each go is a pair: a guess for the minute of the Final's first goal, AND a guess for the minute of the first corner — both 1–120."],
-                ["⏱️","Penalty shootout = the first goal","If it's still 0-0 after 120 minutes, the shootout happens — and the FIRST PENALTY SCORED counts as \"the first goal\", recorded as minute 120 for tiebreak purposes."],
+                ["⏱️","0-0 after 120 minutes","If the Final ends 0-0 after extra time and goes to a penalty shootout, there is no first-goal minute to compare — so the goal-minute step is skipped entirely. We go straight to Step 3: the first corner minute. (The shootout itself does not count as a goal for tiebreak purposes.)"],
                 ["📺","FIFA's site is the source of truth","The actual first-goal minute (and first-corner minute) will be taken exactly as displayed on FIFA's official website/match centre — including how they record injury-time goals."],
                 ["🩹","Injury time","A goal in 1st-half injury time counts as 45. 2nd-half injury time = 90. Extra-time 1st half injury time = 105. Extra-time 2nd half injury time = 120."],
                 ["🚩","No corners at all","If the goal-minute step is tied and we need corners, but the match somehow had NO corners — there's no actual corner minute to compare against, so we skip straight to the coin flip."],
