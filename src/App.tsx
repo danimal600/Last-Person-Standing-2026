@@ -671,7 +671,8 @@ export default function App() {
       const dayMatches = getMatchesForPickDate(pickDate);
       if(!dayMatches.length) continue;
 
-      // Build picks data
+      // Build picks data — but keep Final picks secret until results are in
+      const isFinalDay = pickDate === FINAL_PICK_DATE;
       const activePlayers = players.filter(p=>!p.eliminated);
       const pickCounts = {};
       const unpicked = [];
@@ -687,6 +688,17 @@ export default function App() {
       const maverick = bottomPick && bottomPick[1]===1 ? players.find(p=>getDayPick(p,pickDate)?.choice===bottomPick[0]) : null;
 
       const onThinIce = players.filter(p=>!p.eliminated&&p.lives<=2).map(p=>p.name);
+
+      // Final day — hype slides must NOT reveal which teams people picked
+      if(isFinalDay) {
+        const finalSlides = [
+          {icon:"⚔️",title:"THE FINAL IS HERE",body:`${stillIn} players. £${pot} pot. The picks are locked and secret until kick-off. The tiebreaker goes are sealed. This is it.`},
+          {icon:"🔒",title:"PICKS LOCKED — SECRETS KEPT",body:`All ${stillIn} finalists have made their picks. Nobody knows what anyone else chose. The reveal happens at kick-off. The tension is real.`},
+          {icon:"🏆",title:"ONE WINNER TAKES ALL",body:`After all this — tonight we find out. One pick. One life. Last one standing wins £${pot}. The Ray Gunn Cup is about to have a champion.`},
+        ];
+        showPopupOnce(finalSlides, dlKey);
+        break;
+      }
 
       const slides = await generateSlides(
         `You are the brutally funny host of "The Ray Gunn Cup — Last Person Standing 2026".
@@ -2514,6 +2526,8 @@ export default function App() {
     function cellBg(o){if(o==="correct")return T.cellCorrect;if(o==="wrong")return T.cellWrong;if(o==="midda")return T.cellMidda;if(o==="pending")return T.cellPending;if(o==="locked_nopick")return T.cellNoPick;return"transparent";}
     function handleCellClick(d, pick) {
       if(!pick||pick==="—"||pick==="") return;
+      // Final picks are secret until the deadline passes — block the popup entirely
+      if(d === FINAL_PICK_DATE && !tiebreakRevealed) return;
       const pickers = players.filter(p=>{const dp=getDayPick(p,d);return dp&&dp.choice===pick;});
       if(pickers.length===0) return;
       setPopup({date:d, team:pick, pickers});
@@ -2539,6 +2553,11 @@ export default function App() {
     function handleMatchesClick(d) {
       const ms = getMatchesForDisplay(d);
       if(ms.length===0) return;
+      // Final picks are secret until deadline — show fixtures only, no pick counts
+      if(d === FINAL_PICK_DATE && !tiebreakRevealed) {
+        setPopup({date:d, team:null, matchSummary:[], matches:ms, finalSecret:true});
+        return;
+      }
       const seen = new Set();
       const allChoices = [];
       ms.forEach(m => {
@@ -2730,6 +2749,14 @@ export default function App() {
                   )}
 
                   <div style={{fontSize:11,color:T.muted,marginBottom:16}}>Who picked what — most popular first</div>
+                  {popup.finalSecret ? (
+                    <div style={{textAlign:"center",padding:"16px 0"}}>
+                      <div style={{fontSize:28,marginBottom:8}}>🔒</div>
+                      <div style={{fontSize:14,color:T.amber,fontWeight:700,marginBottom:6}}>Final picks are secret</div>
+                      <div style={{fontSize:12,color:T.muted}}>Picks and tiebreaker goes are revealed when the Final kicks off</div>
+                    </div>
+                  ) : (
+                    <>
                   {popup.matchSummary.filter(x=>x.count>0).map((item,i)=>(
                     <div key={i} style={{marginBottom:14}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
@@ -2746,6 +2773,8 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                    </>
+                  )}
                   {popup.matchSummary.filter(x=>x.count>0).length===0&&<div style={{color:T.muted,fontSize:13}}>No picks made yet.</div>}
                 </>
               ) : (
